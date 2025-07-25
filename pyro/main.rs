@@ -3,16 +3,15 @@ use std::io;
 use std::time::Instant;
 
 use crate::cli::{Cli, Commands, PyroApp};
-use crate::config::PyroConfig;
 use crate::dependency::Package;
 use crate::ui::{Node, NodeStatus, ProgressTree, tree_ui};
 use petgraph::graph::DiGraph;
 use petgraph::visit::Topo;
-use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode};
+use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{
 	Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen,
-	enable_raw_mode, disable_raw_mode,
+	enable_raw_mode,
 };
 use ratatui::prelude::CrosstermBackend;
 use ratatui::{Frame, Terminal};

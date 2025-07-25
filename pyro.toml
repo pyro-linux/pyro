@@ -1,0 +1,62 @@
+# Pyro Configuration - Nix-like Package Manager
+# This file declaratively defines your system packages and configuration
+
+# System-wide packages (requires admin privileges)
+[[system_packages]]
+name = "ripgrep"
+version = "14.1.0"
+source = { Crates = { name = "ripgrep", version = "14.1.0" } }
+build_inputs = ["libc"]
+runtime_inputs = []
+environment = { "RUST_BACKTRACE" = "1" }
+
+[[system_packages]]
+name = "fd-find"
+version = "10.1.0"
+source = { Crates = { name = "fd-find", version = "10.1.0" } }
+build_inputs = ["libc"]
+runtime_inputs = []
+environment = {}
+
+# User packages
+[[user_packages]]
+name = "bat"
+version = "0.24.0"
+source = { Crates = { name = "bat", version = "0.24.0" } }
+build_inputs = ["libgit2-sys", "onig_sys"]
+runtime_inputs = ["git"]
+environment = { "BAT_THEME" = "GitHub" }
+
+[[user_packages]]
+name = "exa"
+source = { Git = { url = "https://github.com/ogham/exa.git", rev = "master" } }
+build_inputs = ["libgit2-sys"]
+runtime_inputs = ["git"]
+environment = {}
+
+[[user_packages]]
+name = "custom-tool"
+source = { Path = { path = "./local-packages/custom-tool" } }
+build_inputs = []
+runtime_inputs = []
+environment = {}
+build_script = """
+#!/bin/bash
+echo "Building custom tool..."
+cargo build --release
+echo "Custom build completed"
+"""
+
+# Build configuration
+[build_config]
+max_jobs = 4
+sandbox = true
+cache_dir = "C:\\pyro\\cache"
+system_packages = false
+
+# Store configuration
+[store_config]
+store_path = "/nix/store"  # On Windows: "C:\\pyro\\store"
+gc_roots = ["/nix/var/nix/gcroots"]
+auto_gc = false
+max_store_size = 10737418240  # 10GB in bytes

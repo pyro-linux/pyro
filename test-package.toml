@@ -1,0 +1,21 @@
+# Simple Package Specification for Pyro Package Manager
+# This demonstrates a single package that can be built
+
+name = "serde"
+version = "1.0.0"
+
+source = { Crates = { name = "serde", version = "1.0.0" } }
+
+build_inputs = ["libc"]
+runtime_inputs = []
+
+[environment]
+RUST_BACKTRACE = "1"
+CFLAGS = "-O2 -g"
+
+build_script = """
+#!/bin/bash
+echo "Building hello-world package..."
+cargo build --release
+echo "Build completed"
+"""

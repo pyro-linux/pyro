@@ -3,7 +3,7 @@ use crate::store::{BuildResult, PyroStore, StorePath};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::time::{Instant, SystemTime};
 use tokio::sync::Semaphore;
 use std::sync::Arc;
@@ -65,6 +65,10 @@ impl PyroBuilder {
 
     /// Build a package with all its dependencies
     pub async fn build_package(&self, spec: &PackageSpec) -> Result<BuildResult, BuildError> {
+        Box::pin(self.build_package_impl(spec)).await
+    }
+
+    async fn build_package_impl(&self, spec: &PackageSpec) -> Result<BuildResult, BuildError> {
         // Check if package already exists in store
         {
             let mut store = self.store.lock().await;
@@ -88,7 +92,7 @@ impl PyroBuilder {
             // For simplicity, assume dependencies are also PackageSpecs
             // In a real implementation, you'd resolve these from a registry
             let dep_spec = self.resolve_dependency(dep_name).await?;
-            let dep_result = self.build_package(&dep_spec).await?;
+            let dep_result = Box::pin(self.build_package_impl(&dep_spec)).await?;
             if dep_result.success {
                 dependencies.push(dep_result.store_path);
             } else {
@@ -149,7 +153,7 @@ impl PyroBuilder {
 
     /// Execute the build in a sandboxed environment
     async fn execute_build(&self, context: &BuildContext) -> Result<BuildResult, BuildError> {
-        let start_time = Instant::now();
+        let _start_time = Instant::now();
         let mut build_log = String::new();
 
         // Download/prepare source

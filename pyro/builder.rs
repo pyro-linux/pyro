@@ -1,5 +1,6 @@
 use crate::config::{BuildConfig, PackageSpec, PackageSource};
 use crate::store::{BuildResult, PyroStore, StorePath};
+use crate::rustc_builder::RustcBuilder;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -15,7 +16,7 @@ use flate2::read::GzDecoder;
 
 
 /// Nix-like package builder with sandboxing and reproducibility
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PyroBuilder {
     config: BuildConfig,
     store: Arc<tokio::sync::Mutex<PyroStore>>,
@@ -76,6 +77,99 @@ impl PyroBuilder {
     /// Build a package with all its dependencies
     pub async fn build_package(&self, spec: &PackageSpec) -> Result<BuildResult, BuildError> {
         Box::pin(self.build_package_impl(spec)).await
+    }
+
+    /// Build a Rust crate using custom rustc builder instead of cargo
+    pub async fn build_rust_crate_with_rustc(&self, spec: &PackageSpec) -> Result<BuildResult, BuildError> {
+        println!("DEBUG: Starting build_rust_crate_with_rustc for: {}", spec.name);
+        
+        // Check if package already exists in store
+        {
+            println!("DEBUG: Checking if package exists in store");
+            let mut store = self.store.lock().await;
+            if store.package_exists(spec) {
+                if let Some(store_path) = store.get_package(spec) {
+                    println!("DEBUG: Package already exists, returning early");
+                    return Ok(BuildResult {
+                        store_path: store_path.clone(),
+                        build_log: "Package already exists in store".to_string(),
+                        success: true,
+                    });
+                }
+            }
+            println!("DEBUG: Package does not exist, proceeding with build");
+        }
+
+        // Acquire build semaphore
+        println!("DEBUG: Acquiring build semaphore");
+        let _permit = self.build_semaphore.acquire().await.unwrap();
+        println!("DEBUG: Build semaphore acquired");
+
+        // Create target directory for rustc builder
+        println!("DEBUG: Creating target directory");
+        let target_dir = std::env::temp_dir().join(format!("pyro-rustc-{}", spec.name));
+        fs::create_dir_all(&target_dir)?;
+        println!("DEBUG: Target directory created: {:?}", target_dir);
+
+        // Create rustc builder instance
+        println!("DEBUG: Creating rustc builder instance");
+        let mut rustc_builder = RustcBuilder::new(self.clone(), target_dir.clone());
+        println!("DEBUG: Rustc builder created");
+
+        // Build with rustc using Pyro's dependency graph
+        println!("DEBUG: Starting rustc build");
+        let mut build_log = String::new();
+        let success = rustc_builder.build_with_rustc(spec, &mut build_log).await?;
+        println!("DEBUG: Rustc build completed with success: {}", success);
+
+        if success {
+            // Create store path
+            let store = self.store.lock().await;
+            let store_path_dir = store.get_store_path(spec);
+            drop(store);
+
+            // Install to store
+            fs::create_dir_all(&store_path_dir)?;
+            let output_dir = target_dir.join("output").join(&spec.name);
+            if output_dir.exists() {
+                self.copy_directory(&output_dir, &store_path_dir)?;
+            }
+
+            let store_path = StorePath {
+                hash: {
+                    let store = self.store.lock().await;
+                    store.compute_package_hash(spec)
+                },
+                name: spec.name.clone(),
+                path: store_path_dir.clone(),
+            dependencies: vec![], // Dependencies handled by rustc builder
+            size: self.calculate_directory_size(&store_path_dir).unwrap_or(0),
+                created_at: SystemTime::now(),
+                last_accessed: SystemTime::now(),
+            };
+
+            build_log.push_str("Successfully built Rust crate with rustc and Pyro dependency graph\n");
+
+            Ok(BuildResult {
+                store_path,
+                build_log,
+                success: true,
+            })
+        } else {
+            Ok(BuildResult {
+                store_path: StorePath {
+                    hash: String::new(),
+                    name: spec.name.clone(),
+                    path: PathBuf::new(),
+                    dependencies: vec![],
+                    size: 0,
+                    created_at: SystemTime::now(),
+                    last_accessed: SystemTime::now(),
+                },
+                build_log,
+                success: false,
+            })
+        }
     }
 
     async fn build_package_impl(&self, spec: &PackageSpec) -> Result<BuildResult, BuildError> {
@@ -641,5 +735,28 @@ impl PyroBuilder {
             }
         }
         Ok(size)
+    }
+
+    /// Copy directory recursively
+    fn copy_directory(&self, source: &Path, destination: &Path) -> Result<(), BuildError> {
+        if !source.exists() {
+            return Ok(());
+        }
+
+        fs::create_dir_all(destination)?;
+
+        for entry in fs::read_dir(source)? {
+            let entry = entry?;
+            let source_path = entry.path();
+            let dest_path = destination.join(entry.file_name());
+
+            if source_path.is_dir() {
+                self.copy_directory(&source_path, &dest_path)?;
+            } else {
+                fs::copy(&source_path, &dest_path)?;
+            }
+        }
+
+        Ok(())
     }
 }

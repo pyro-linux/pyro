@@ -79,6 +79,11 @@ pub enum Commands {
         /// Package specification file
         spec_file: PathBuf,
     },
+    /// Build Rust crate using rustc with Pyro dependency graph
+    BuildRustc {
+        /// Package specification file
+        spec_file: PathBuf,
+    },
     /// Initialize new configuration
     Init {
         /// Configuration file path
@@ -254,6 +259,9 @@ impl PyroApp {
             Commands::Build { spec_file } => {
                 self.build_package(spec_file).await
             }
+            Commands::BuildRustc { spec_file } => {
+                self.build_rust_crate_with_rustc(spec_file).await
+            }
             Commands::Init { config } => {
                 self.init_config(config).await
             }
@@ -396,6 +404,31 @@ impl PyroApp {
             }
             Err(e) => {
                 println!("❌ Error building package: {}", e);
+            }
+        }
+        
+        Ok(())
+    }
+
+    async fn build_rust_crate_with_rustc(&mut self, spec_file: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+        println!("Building Rust crate with rustc from: {}", spec_file.display());
+        
+        let content = std::fs::read_to_string(spec_file)?;
+        let spec: PackageSpec = toml::from_str(&content)?;
+        
+        let result = self.builder.build_rust_crate_with_rustc(&spec).await;
+        match result {
+            Ok(build_result) => {
+                if build_result.success {
+                    println!("✅ Successfully built {} with rustc", spec.name);
+                    println!("Store path: {}", build_result.store_path.path.display());
+                } else {
+                    println!("❌ Failed to build {} with rustc", spec.name);
+                }
+                println!("Build log:\n{}", build_result.build_log);
+            }
+            Err(e) => {
+                println!("❌ Error building package with rustc: {}", e);
             }
         }
         

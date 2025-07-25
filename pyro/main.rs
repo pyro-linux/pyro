@@ -31,6 +31,7 @@ mod store;
 mod ui;
 mod system;
 mod isolation;
+mod rustc_builder;
 
 #[derive(Debug)]
 enum ProgressMsg {

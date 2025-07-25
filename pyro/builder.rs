@@ -1,7 +1,6 @@
 use crate::config::{BuildConfig, PackageSource, PackageSpec};
 use crate::rustc_builder::RustcBuilder;
 use crate::store::{BuildResult, PyroStore, StorePath};
-use reqwest;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -44,17 +43,17 @@ impl std::fmt::Display for BuildError {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			BuildError::DependencyResolutionFailed(msg) => {
-				write!(f, "Dependency resolution failed: {}", msg)
+				write!(f, "Dependency resolution failed: {msg}")
 			}
-			BuildError::BuildFailed(msg) => write!(f, "Build failed: {}", msg),
+			BuildError::BuildFailed(msg) => write!(f, "Build failed: {msg}"),
 			BuildError::SandboxViolation(msg) => {
-				write!(f, "Sandbox violation: {}", msg)
+				write!(f, "Sandbox violation: {msg}")
 			}
-			BuildError::IoError(msg) => write!(f, "IO error: {}", msg),
+			BuildError::IoError(msg) => write!(f, "IO error: {msg}"),
 			BuildError::NetworkError(msg) => {
-				write!(f, "Network error: {}", msg)
+				write!(f, "Network error: {msg}")
 			}
-			BuildError::GitError(msg) => write!(f, "Git error: {}", msg),
+			BuildError::GitError(msg) => write!(f, "Git error: {msg}"),
 		}
 	}
 }
@@ -127,7 +126,7 @@ impl PyroBuilder {
 		let target_dir =
 			std::env::temp_dir().join(format!("pyro-rustc-{}", spec.name));
 		fs::create_dir_all(&target_dir)?;
-		println!("DEBUG: Target directory created: {:?}", target_dir);
+		println!("DEBUG: Target directory created: {target_dir:?}");
 
 		// Create rustc builder instance
 		println!("DEBUG: Creating rustc builder instance");
@@ -140,7 +139,7 @@ impl PyroBuilder {
 		let mut build_log = String::new();
 		let success =
 			rustc_builder.build_with_rustc(spec, &mut build_log).await?;
-		println!("DEBUG: Rustc build completed with success: {}", success);
+		println!("DEBUG: Rustc build completed with success: {success}");
 
 		if success {
 			// Create store path
@@ -152,7 +151,7 @@ impl PyroBuilder {
 			fs::create_dir_all(&store_path_dir)?;
 			let output_dir = target_dir.join("output").join(&spec.name);
 			if output_dir.exists() {
-				self.copy_directory(&output_dir, &store_path_dir)?;
+				Self::copy_directory(&output_dir, &store_path_dir)?;
 			}
 
 			let store_path = StorePath {
@@ -163,8 +162,7 @@ impl PyroBuilder {
 				name: spec.name.clone(),
 				path: store_path_dir.clone(),
 				dependencies: vec![], // Dependencies handled by rustc builder
-				size: self
-					.calculate_directory_size(&store_path_dir)
+				size: Self::calculate_directory_size(&store_path_dir)
 					.unwrap_or(0),
 				created_at: SystemTime::now(),
 				last_accessed: SystemTime::now(),
@@ -326,7 +324,7 @@ impl PyroBuilder {
 					.iter()
 					.map(|d| d.hash.clone())
 					.collect(),
-				size: self.calculate_directory_size(&context.store_path)?,
+				size: Self::calculate_directory_size(&context.store_path)?,
 				created_at: SystemTime::now(),
 				last_accessed: SystemTime::now(),
 			};
@@ -367,8 +365,7 @@ impl PyroBuilder {
 		match &context.package.source {
 			PackageSource::Crates { name, version } => {
 				let url = format!(
-					"https://static.crates.io/crates/{}/{}-{}.crate",
-					name, name, version
+					"https://static.crates.io/crates/{name}/{name}-{version}.crate"
 				);
 				self.download_and_extract(&url, &context.build_dir, build_log)
 					.await?
@@ -402,7 +399,7 @@ impl PyroBuilder {
 		dest: &Path,
 		build_log: &mut String,
 	) -> Result<(), BuildError> {
-		build_log.push_str(&format!("Downloading from {}\n", url));
+		build_log.push_str(&format!("Downloading from {url}\n"));
 
 		let response = reqwest::get(url)
 			.await
@@ -440,7 +437,7 @@ impl PyroBuilder {
 		dest: &Path,
 		build_log: &mut String,
 	) -> Result<(), BuildError> {
-		build_log.push_str(&format!("Cloning git repository {}\n", url));
+		build_log.push_str(&format!("Cloning git repository {url}\n"));
 
 		let mut cmd = Command::new("git");
 		cmd.arg("clone").arg(url).arg("source").current_dir(dest);
@@ -453,7 +450,7 @@ impl PyroBuilder {
 		}
 
 		if let Some(rev) = rev {
-			build_log.push_str(&format!("Checking out revision {}\n", rev));
+			build_log.push_str(&format!("Checking out revision {rev}\n"));
 			let output = Command::new("git")
 				.arg("checkout")
 				.arg(rev)
@@ -516,7 +513,7 @@ impl PyroBuilder {
 				continue; // Skip comments
 			}
 
-			build_log.push_str(&format!("Running: {}\n", command));
+			build_log.push_str(&format!("Running: {command}\n"));
 
 			let mut cmd = if cfg!(target_os = "windows") {
 				let mut cmd = Command::new("cmd");
@@ -789,8 +786,7 @@ impl PyroBuilder {
 		}
 
 		Err(BuildError::DependencyResolutionFailed(format!(
-			"Dependency {} not found in any registry",
-			dep_name
+			"Dependency {dep_name} not found in any registry"
 		)))
 	}
 
@@ -799,15 +795,14 @@ impl PyroBuilder {
 		&self,
 		dep_name: &str,
 	) -> Result<PackageSpec, BuildError> {
-		let url = format!("https://crates.io/api/v1/crates/{}", dep_name);
+		let url = format!("https://crates.io/api/v1/crates/{dep_name}");
 		let response = reqwest::get(&url)
 			.await
 			.map_err(|e| BuildError::NetworkError(e.to_string()))?;
 
 		if !response.status().is_success() {
 			return Err(BuildError::DependencyResolutionFailed(format!(
-				"Crate {} not found on crates.io",
-				dep_name
+				"Crate {dep_name} not found on crates.io"
 			)));
 		}
 
@@ -842,15 +837,14 @@ impl PyroBuilder {
 		&self,
 		dep_name: &str,
 	) -> Result<PackageSpec, BuildError> {
-		let url = format!("https://registry.npmjs.org/{}", dep_name);
+		let url = format!("https://registry.npmjs.org/{dep_name}");
 		let response = reqwest::get(&url)
 			.await
 			.map_err(|e| BuildError::NetworkError(e.to_string()))?;
 
 		if !response.status().is_success() {
 			return Err(BuildError::DependencyResolutionFailed(format!(
-				"Package {} not found on npm",
-				dep_name
+				"Package {dep_name} not found on npm"
 			)));
 		}
 
@@ -895,15 +889,14 @@ impl PyroBuilder {
 		&self,
 		dep_name: &str,
 	) -> Result<PackageSpec, BuildError> {
-		let url = format!("https://pypi.org/pypi/{}/json", dep_name);
+		let url = format!("https://pypi.org/pypi/{dep_name}/json");
 		let response = reqwest::get(&url)
 			.await
 			.map_err(|e| BuildError::NetworkError(e.to_string()))?;
 
 		if !response.status().is_success() {
 			return Err(BuildError::DependencyResolutionFailed(format!(
-				"Package {} not found on PyPI",
-				dep_name
+				"Package {dep_name} not found on PyPI"
 			)));
 		}
 
@@ -949,14 +942,14 @@ impl PyroBuilder {
 	}
 
 	/// Calculate directory size
-	fn calculate_directory_size(&self, path: &Path) -> Result<u64, BuildError> {
+	fn calculate_directory_size(path: &Path) -> Result<u64, BuildError> {
 		let mut size = 0;
 		if path.is_dir() {
 			for entry in fs::read_dir(path)? {
 				let entry = entry?;
 				let metadata = entry.metadata()?;
 				if metadata.is_dir() {
-					size += self.calculate_directory_size(&entry.path())?;
+					size += Self::calculate_directory_size(&entry.path())?;
 				} else {
 					size += metadata.len();
 				}
@@ -967,7 +960,6 @@ impl PyroBuilder {
 
 	/// Copy directory recursively
 	fn copy_directory(
-		&self,
 		source: &Path,
 		destination: &Path,
 	) -> Result<(), BuildError> {
@@ -983,7 +975,7 @@ impl PyroBuilder {
 			let dest_path = destination.join(entry.file_name());
 
 			if source_path.is_dir() {
-				self.copy_directory(&source_path, &dest_path)?;
+				Self::copy_directory(&source_path, &dest_path)?;
 			} else {
 				fs::copy(&source_path, &dest_path)?;
 			}

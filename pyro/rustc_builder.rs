@@ -11,7 +11,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use toml;
 
 /// Simplified Cargo.toml structure for dependency parsing
 #[derive(Debug, Deserialize, Serialize)]
@@ -179,8 +178,7 @@ impl RustcBuilder {
 
 		toml::from_str(&content).map_err(|e| {
 			BuildError::BuildFailed(format!(
-				"Failed to parse Cargo.toml: {}",
-				e
+				"Failed to parse Cargo.toml: {e}"
 			))
 		})
 	}
@@ -216,7 +214,7 @@ impl RustcBuilder {
 				};
 				packages.push(dep_package);
 				main_deps.push(name.clone());
-				build_log.push_str(&format!("Resolved dependency: {}\n", name));
+				build_log.push_str(&format!("Resolved dependency: {name}\n"));
 			}
 		}
 
@@ -293,15 +291,14 @@ impl RustcBuilder {
 		dep_name: &str,
 		version: Option<&String>,
 	) -> Result<PackageSpec, BuildError> {
-		let url = format!("https://crates.io/api/v1/crates/{}", dep_name);
+		let url = format!("https://crates.io/api/v1/crates/{dep_name}");
 		let response = reqwest::get(&url)
 			.await
 			.map_err(|e| BuildError::NetworkError(e.to_string()))?;
 
 		if !response.status().is_success() {
 			return Err(BuildError::DependencyResolutionFailed(format!(
-				"Crate {} not found on crates.io",
-				dep_name
+				"Crate {dep_name} not found on crates.io"
 			)));
 		}
 
@@ -310,7 +307,7 @@ impl RustcBuilder {
 			.await
 			.map_err(|e| BuildError::NetworkError(e.to_string()))?;
 
-		let target_version = version.map(|v| v.clone()).unwrap_or_else(|| {
+		let target_version = version.cloned().unwrap_or_else(|| {
 			crate_info["crate"]["max_version"]
 				.as_str()
 				.unwrap_or("*")
@@ -484,7 +481,7 @@ impl RustcBuilder {
 		}
 
 		// Execute rustc
-		build_log.push_str(&format!("Executing: {:?}\n", cmd));
+		build_log.push_str(&format!("Executing: {cmd:?}\n"));
 		let output = cmd
 			.output()
 			.map_err(|e| BuildError::IoError(e.to_string()))?;
@@ -518,7 +515,7 @@ impl RustcBuilder {
 		build_log: &mut String,
 	) -> Result<(), BuildError> {
 		build_log
-			.push_str(&format!("Downloading crate: {} v{}\n", name, version));
+			.push_str(&format!("Downloading crate: {name} v{version}\n"));
 		// Implementation would download and extract crate from crates.io
 		Ok(())
 	}
@@ -530,7 +527,7 @@ impl RustcBuilder {
 		_target_dir: &Path,
 		build_log: &mut String,
 	) -> Result<(), BuildError> {
-		build_log.push_str(&format!("Cloning git repo: {}\n", url));
+		build_log.push_str(&format!("Cloning git repo: {url}\n"));
 		// Implementation would clone git repository
 		Ok(())
 	}
@@ -550,7 +547,7 @@ impl RustcBuilder {
 		_target_dir: &Path,
 		build_log: &mut String,
 	) -> Result<(), BuildError> {
-		build_log.push_str(&format!("Downloading from URL: {}\n", url));
+		build_log.push_str(&format!("Downloading from URL: {url}\n"));
 		// Implementation would download and extract from URL
 		Ok(())
 	}

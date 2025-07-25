@@ -286,7 +286,7 @@ impl PyroApp {
 		packages: Vec<String>,
 		_user: bool,
 	) -> Result<(), Box<dyn std::error::Error>> {
-		println!("Installing packages: {:?}", packages);
+		println!("Installing packages: {packages:?}");
 
 		for package_str in packages {
 			let spec = self.parse_package_spec(&package_str)?;
@@ -306,7 +306,7 @@ impl PyroApp {
 							.await?;
 
 						println!("✅ Successfully installed {}", spec.name);
-						println!("Package hash: {}", package_hash);
+						println!("Package hash: {package_hash}");
 						println!(
 							"Binaries available in: {}/bin",
 							self.config.store_config.store_path.display()
@@ -329,7 +329,7 @@ impl PyroApp {
 		&mut self,
 		packages: Vec<String>,
 	) -> Result<(), Box<dyn std::error::Error>> {
-		println!("Removing packages: {:?}", packages);
+		println!("Removing packages: {packages:?}");
 		// Implementation would remove packages from store and update configuration
 		Ok(())
 	}
@@ -341,7 +341,7 @@ impl PyroApp {
 		if packages.is_empty() {
 			println!("Updating all packages");
 		} else {
-			println!("Updating packages: {:?}", packages);
+			println!("Updating packages: {packages:?}");
 		}
 		// Implementation would check for updates and rebuild packages
 		Ok(())
@@ -351,7 +351,7 @@ impl PyroApp {
 		&self,
 		query: String,
 	) -> Result<(), Box<dyn std::error::Error>> {
-		println!("Searching for: {}", query);
+		println!("Searching for: {query}");
 		// Implementation would search package registry
 		println!("Search functionality not yet implemented");
 		Ok(())
@@ -361,7 +361,7 @@ impl PyroApp {
 		&self,
 		package: String,
 	) -> Result<(), Box<dyn std::error::Error>> {
-		println!("Package information for: {}", package);
+		println!("Package information for: {package}");
 		// Implementation would show detailed package information
 		Ok(())
 	}
@@ -392,12 +392,12 @@ impl PyroApp {
 		if dry_run {
 			println!("Would remove {} packages:", removed.len());
 			for package in removed {
-				println!("  - {}", package);
+				println!("  - {package}");
 			}
 		} else {
 			println!("Removed {} packages:", removed.len());
 			for package in removed {
-				println!("  - {}", package);
+				println!("  - {package}");
 			}
 		}
 
@@ -443,7 +443,7 @@ impl PyroApp {
 				println!("Build log:\n{}", build_result.build_log);
 			}
 			Err(e) => {
-				println!("❌ Error building package: {}", e);
+				println!("❌ Error building package: {e}");
 			}
 		}
 
@@ -477,7 +477,7 @@ impl PyroApp {
 				println!("Build log:\n{}", build_result.build_log);
 			}
 			Err(e) => {
-				println!("❌ Error building package with rustc: {}", e);
+				println!("❌ Error building package with rustc: {e}");
 			}
 		}
 
@@ -508,7 +508,7 @@ impl PyroApp {
 		package: String,
 		format: String,
 	) -> Result<(), Box<dyn std::error::Error>> {
-		println!("Dependency graph for {} (format: {})", package, format);
+		println!("Dependency graph for {package} (format: {format})");
 		// Implementation would generate and display dependency graph
 		println!("Dependency graph functionality not yet implemented");
 		Ok(())
@@ -522,30 +522,28 @@ impl PyroApp {
 			EnvCommands::Setup { shell } => {
 				let shell_type =
 					shell.unwrap_or_else(|| self.env_manager.detect_shell());
-				println!("Setting up shell integration for: {}", shell_type);
+				println!("Setting up shell integration for: {shell_type}");
 
 				match self.env_manager.setup_shell_integration(&shell_type) {
 					Ok(_) => println!(
-						"✅ Successfully set up shell integration for {}",
-						shell_type
+						"✅ Successfully set up shell integration for {shell_type}"
 					),
 					Err(e) => {
-						println!("❌ Failed to set up shell integration: {}", e)
+						println!("❌ Failed to set up shell integration: {e}")
 					}
 				}
 			}
 			EnvCommands::Remove { shell } => {
 				let shell_type =
 					shell.unwrap_or_else(|| self.env_manager.detect_shell());
-				println!("Removing shell integration for: {}", shell_type);
+				println!("Removing shell integration for: {shell_type}");
 
 				match self.env_manager.remove_shell_integration(&shell_type) {
 					Ok(_) => println!(
-						"✅ Successfully removed shell integration for {}",
-						shell_type
+						"✅ Successfully removed shell integration for {shell_type}"
 					),
 					Err(e) => {
-						println!("❌ Failed to remove shell integration: {}", e)
+						println!("❌ Failed to remove shell integration: {e}")
 					}
 				}
 			}
@@ -560,16 +558,16 @@ impl PyroApp {
 				let env_vars = self.env_manager.get_environment_variables();
 				println!("Environment variables:");
 				for (key, value) in env_vars {
-					println!("  {}={}", key, value);
+					println!("  {key}={value}");
 				}
 			}
 			EnvCommands::Script { shell } => {
-				println!("Generating shell setup script for: {}", shell);
+				println!("Generating shell setup script for: {shell}");
 
 				match self.env_manager.generate_shell_script(&shell) {
-					Ok(script) => println!("{}", script),
+					Ok(script) => println!("{script}"),
 					Err(e) => {
-						println!("❌ Failed to generate shell script: {}", e)
+						println!("❌ Failed to generate shell script: {e}")
 					}
 				}
 			}
@@ -584,8 +582,7 @@ impl PyroApp {
 		match command {
 			SystemCommands::Build { package, arch } => {
 				println!(
-					"Building system package: {} (arch: {:?})",
-					package, arch
+					"Building system package: {package} (arch: {arch:?})"
 				);
 
 				let spec = SystemPackageSpec {
@@ -607,25 +604,24 @@ impl PyroApp {
 
 				match self.system_builder.build_package(&spec).await {
 					Ok(_) => println!(
-						"✅ Successfully built system package: {}",
-						package
+						"✅ Successfully built system package: {package}"
 					),
 					Err(e) => {
-						println!("❌ Failed to build system package: {}", e)
+						println!("❌ Failed to build system package: {e}")
 					}
 				}
 			}
 			SystemCommands::Install { packages } => {
-				println!("Installing system dependencies: {:?}", packages);
+				println!("Installing system dependencies: {packages:?}");
 
 				for package in packages {
 					match self.system_builder.install_dependency(&package).await
 					{
 						Ok(_) => {
-							println!("✅ Successfully installed: {}", package)
+							println!("✅ Successfully installed: {package}")
 						}
 						Err(e) => {
-							println!("❌ Failed to install {}: {}", package, e)
+							println!("❌ Failed to install {package}: {e}")
 						}
 					}
 				}
@@ -647,8 +643,7 @@ impl PyroApp {
 		match command {
 			IsolateCommands::Create { name, packages } => {
 				println!(
-					"Creating isolated environment: {} with packages: {:?}",
-					name, packages
+					"Creating isolated environment: {name} with packages: {packages:?}"
 				);
 
 				let env = IsolatedEnvironment {
@@ -670,39 +665,34 @@ impl PyroApp {
 
 				match self.isolation_builder.create_environment(&env).await {
 					Ok(_) => println!(
-						"✅ Successfully created isolated environment: {}",
-						name
+						"✅ Successfully created isolated environment: {name}"
 					),
 					Err(e) => println!(
-						"❌ Failed to create isolated environment: {}",
-						e
+						"❌ Failed to create isolated environment: {e}"
 					),
 				}
 			}
 			IsolateCommands::Enter { name } => {
-				println!("Entering isolated environment: {}", name);
+				println!("Entering isolated environment: {name}");
 
 				match self.isolation_builder.enter_environment(&name).await {
 					Ok(_) => {
-						println!("✅ Entered isolated environment: {}", name)
+						println!("✅ Entered isolated environment: {name}")
 					}
 					Err(e) => println!(
-						"❌ Failed to enter isolated environment: {}",
-						e
+						"❌ Failed to enter isolated environment: {e}"
 					),
 				}
 			}
 			IsolateCommands::Remove { name } => {
-				println!("Removing isolated environment: {}", name);
+				println!("Removing isolated environment: {name}");
 
 				match self.isolation_builder.remove_environment(&name).await {
 					Ok(_) => println!(
-						"✅ Successfully removed isolated environment: {}",
-						name
+						"✅ Successfully removed isolated environment: {name}"
 					),
 					Err(e) => println!(
-						"❌ Failed to remove isolated environment: {}",
-						e
+						"❌ Failed to remove isolated environment: {e}"
 					),
 				}
 			}
@@ -719,8 +709,7 @@ impl PyroApp {
 						}
 					}
 					Err(e) => println!(
-						"❌ Failed to list isolated environments: {}",
-						e
+						"❌ Failed to list isolated environments: {e}"
 					),
 				}
 			}

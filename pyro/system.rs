@@ -4,7 +4,7 @@
 use crate::config::{BuildConfig, PackageSource};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemPackageSpec {
@@ -37,7 +37,7 @@ pub enum SystemBuildType {
 	/// Rust cargo build
 	Cargo,
 	/// LLVM build
-	LLVM,
+	Llvm,
 	/// Linux kernel build
 	Kernel,
 }
@@ -63,13 +63,13 @@ impl SystemBuilder {
 		&self,
 		package: &str,
 	) -> Result<(), Box<dyn std::error::Error>> {
-		println!("Installing system dependency: {}", package);
+		println!("Installing system dependency: {package}");
 
 		// For now, just simulate installation
 		// In a real implementation, this would download and install the package
 		tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-		println!("✅ Installed system dependency: {}", package);
+		println!("✅ Installed system dependency: {package}");
 		Ok(())
 	}
 
@@ -128,7 +128,7 @@ impl SystemBuilder {
 			SystemBuildType::Cargo => {
 				self.build_cargo(spec, &source_dir, &env).await?
 			}
-			SystemBuildType::LLVM => {
+			SystemBuildType::Llvm => {
 				self.build_llvm(spec, &source_dir, &env).await?
 			}
 			SystemBuildType::Kernel => {
@@ -144,13 +144,13 @@ impl SystemBuilder {
 	async fn prepare_source_with_source(
 		&self,
 		source: &PackageSource,
-		build_dir: &PathBuf,
+		build_dir: &Path,
 	) -> Result<PathBuf, Box<dyn std::error::Error>> {
 		let source_dir = build_dir.join("source");
 
 		match source {
 			PackageSource::Git { url, rev } => {
-				println!("Cloning from Git: {}", url);
+				println!("Cloning from Git: {url}");
 				let repo = git2::Repository::clone(url, &source_dir)?;
 				if let Some(rev) = rev {
 					let oid = git2::Oid::from_str(rev)?;
@@ -159,7 +159,7 @@ impl SystemBuilder {
 				}
 			}
 			PackageSource::Url { url, hash: _ } => {
-				println!("Downloading from URL: {}", url);
+				println!("Downloading from URL: {url}");
 				let response = reqwest::get(url).await?;
 				let bytes = response.bytes().await?;
 
@@ -180,7 +180,7 @@ impl SystemBuilder {
 			}
 			PackageSource::Path { path } => {
 				println!("Copying from local path: {}", path.display());
-				self.copy_directory(path, &source_dir)?;
+				Self::copy_directory(path, &source_dir)?;
 			}
 			_ => {
 				return Err(
@@ -206,10 +206,10 @@ impl SystemBuilder {
 
 		// Set up cross-compilation if specified
 		if let Some(target) = &spec.cross_compile_target {
-			env.insert("CC".to_string(), format!("{}-gcc", target));
-			env.insert("CXX".to_string(), format!("{}-g++", target));
-			env.insert("AR".to_string(), format!("{}-ar", target));
-			env.insert("STRIP".to_string(), format!("{}-strip", target));
+			env.insert("CC".to_string(), format!("{target}-gcc"));
+			env.insert("CXX".to_string(), format!("{target}-g++"));
+			env.insert("AR".to_string(), format!("{target}-ar"));
+			env.insert("STRIP".to_string(), format!("{target}-strip"));
 		}
 
 		// Set up sysroot
@@ -315,7 +315,7 @@ impl SystemBuilder {
 	async fn build_cmake(
 		&self,
 		spec: &SystemPackageSpec,
-		source_dir: &PathBuf,
+		source_dir: &Path,
 		env: &HashMap<String, String>,
 	) -> Result<PathBuf, Box<dyn std::error::Error>> {
 		let install_prefix =
@@ -396,22 +396,22 @@ impl SystemBuilder {
 
 	/// Build using Meson
 	async fn build_meson(
-		&self,
-		_spec: &SystemPackageSpec,
-		_source_dir: &PathBuf,
-		_env: &HashMap<String, String>,
-	) -> Result<PathBuf, Box<dyn std::error::Error>> {
+        &self,
+        _spec: &SystemPackageSpec,
+        _source_dir: &Path,
+        _env: &HashMap<String, String>,
+    ) -> Result<PathBuf, Box<dyn std::error::Error>> {
 		// Meson build implementation
 		Err("Meson builds not yet implemented".into())
 	}
 
 	/// Build using custom script
 	async fn build_custom(
-		&self,
-		spec: &SystemPackageSpec,
-		source_dir: &PathBuf,
-		env: &HashMap<String, String>,
-	) -> Result<PathBuf, Box<dyn std::error::Error>> {
+        &self,
+        spec: &SystemPackageSpec,
+        source_dir: &Path,
+        env: &HashMap<String, String>,
+    ) -> Result<PathBuf, Box<dyn std::error::Error>> {
 		if let Some(script) = &spec.build_script {
 			let mut cmd = std::process::Command::new("sh");
 			cmd.current_dir(source_dir);
@@ -441,43 +441,42 @@ impl SystemBuilder {
 
 	/// Build Rust/Cargo project
 	async fn build_cargo(
-		&self,
-		_spec: &SystemPackageSpec,
-		_source_dir: &PathBuf,
-		_env: &HashMap<String, String>,
-	) -> Result<PathBuf, Box<dyn std::error::Error>> {
+        &self,
+        _spec: &SystemPackageSpec,
+        _source_dir: &Path,
+        _env: &HashMap<String, String>,
+    ) -> Result<PathBuf, Box<dyn std::error::Error>> {
 		// Cargo build implementation
 		Err("Cargo builds not yet implemented".into())
 	}
 
 	/// Build LLVM
 	async fn build_llvm(
-		&self,
-		_spec: &SystemPackageSpec,
-		_source_dir: &PathBuf,
-		_env: &HashMap<String, String>,
-	) -> Result<PathBuf, Box<dyn std::error::Error>> {
+        &self,
+        _spec: &SystemPackageSpec,
+        _source_dir: &Path,
+        _env: &HashMap<String, String>,
+    ) -> Result<PathBuf, Box<dyn std::error::Error>> {
 		// LLVM build implementation
 		Err("LLVM builds not yet implemented".into())
 	}
 
 	/// Build Linux kernel
 	async fn build_kernel(
-		&self,
-		_spec: &SystemPackageSpec,
-		_source_dir: &PathBuf,
-		_env: &HashMap<String, String>,
-	) -> Result<PathBuf, Box<dyn std::error::Error>> {
+        &self,
+        _spec: &SystemPackageSpec,
+        _source_dir: &Path,
+        _env: &HashMap<String, String>,
+    ) -> Result<PathBuf, Box<dyn std::error::Error>> {
 		// Kernel build implementation
 		Err("Kernel builds not yet implemented".into())
 	}
 
 	/// Copy directory recursively
-	fn copy_directory(
-		&self,
-		src: &PathBuf,
-		dst: &PathBuf,
-	) -> Result<(), Box<dyn std::error::Error>> {
+    fn copy_directory(
+        src: &Path,
+        dst: &Path,
+    ) -> Result<(), Box<dyn std::error::Error>> {
 		std::fs::create_dir_all(dst)?;
 
 		for entry in std::fs::read_dir(src)? {
@@ -486,7 +485,7 @@ impl SystemBuilder {
 			let dst_path = dst.join(entry.file_name());
 
 			if src_path.is_dir() {
-				self.copy_directory(&src_path, &dst_path)?;
+				Self::copy_directory(&src_path, &dst_path)?;
 			} else {
 				std::fs::copy(&src_path, &dst_path)?;
 			}
@@ -508,8 +507,7 @@ impl SystemPackages {
 			arch: "x86_64".to_string(),
 			source: Some(PackageSource::Url {
 				url: format!(
-					"https://ftp.gnu.org/gnu/glibc/glibc-{}.tar.gz",
-					version
+					"https://ftp.gnu.org/gnu/glibc/glibc-{version}.tar.gz"
 				),
 				hash: String::new(),
 			}),
@@ -538,8 +536,7 @@ impl SystemPackages {
 			arch: "x86_64".to_string(),
 			source: Some(PackageSource::Url {
 				url: format!(
-					"https://github.com/llvm/llvm-project/releases/download/llvmorg-{}/llvm-{}.src.tar.xz",
-					version, version
+					"https://github.com/llvm/llvm-project/releases/download/llvmorg-{version}/llvm-{version}.src.tar.xz"
 				),
 				hash: String::new(),
 			}),
@@ -567,9 +564,7 @@ impl SystemPackages {
 			version: version.to_string(),
 			arch: "x86_64".to_string(),
 			source: Some(PackageSource::Url {
-				url: format!(
-					"https://forge.rust-lang.org/infra/channel-layout.html#source-code"
-				),
+				url: "https://forge.rust-lang.org/infra/channel-layout.html#source-code".to_string(),
 				hash: String::new(),
 			}),
 			build_type: Some(SystemBuildType::Custom),

@@ -4,7 +4,7 @@
 use crate::config::PyroConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IsolatedEnvironment {
@@ -70,7 +70,7 @@ impl EnvironmentBuilder {
 	pub async fn create_environment_with_output(
 		&self,
 		env_spec: &IsolatedEnvironment,
-		output_dir: &PathBuf,
+		output_dir: &Path,
 	) -> Result<PathBuf, Box<dyn std::error::Error>> {
 		println!("Creating isolated environment: {}", env_spec.name);
 
@@ -102,7 +102,7 @@ impl EnvironmentBuilder {
 	/// Create standard Unix directory structure
 	fn create_unix_structure(
 		&self,
-		env_dir: &PathBuf,
+		env_dir: &Path,
 	) -> Result<(), Box<dyn std::error::Error>> {
 		let dirs = [
 			"bin",
@@ -146,10 +146,10 @@ impl EnvironmentBuilder {
 	async fn install_packages_to_env(
 		&self,
 		packages: &[String],
-		env_dir: &PathBuf,
+		env_dir: &Path,
 	) -> Result<(), Box<dyn std::error::Error>> {
 		for package in packages {
-			println!("Installing package '{}' into environment", package);
+			println!("Installing package '{package}' into environment");
 
 			// Find package in store
 			let package_path = self.find_package_in_store(package)?;
@@ -179,7 +179,7 @@ impl EnvironmentBuilder {
 					let metadata_content =
 						std::fs::read_to_string(&metadata_path)?;
 					if metadata_content
-						.contains(&format!("\"name\":\"{}\"", package_name))
+						.contains(&format!("\"name\":\"{package_name}\""))
 					{
 						return Ok(path);
 					}
@@ -187,34 +187,34 @@ impl EnvironmentBuilder {
 			}
 		}
 
-		Err(format!("Package '{}' not found in store", package_name).into())
+		Err(format!("Package '{package_name}' not found in store").into())
 	}
 
 	/// Copy package contents to environment
 	fn copy_package_to_env(
 		&self,
-		package_path: &PathBuf,
-		env_dir: &PathBuf,
+		package_path: &Path,
+		env_dir: &Path,
 	) -> Result<(), Box<dyn std::error::Error>> {
 		// Copy binaries
 		let src_bin = package_path.join("bin");
 		let dst_bin = env_dir.join("usr/bin");
 		if src_bin.exists() {
-			self.copy_directory_contents(&src_bin, &dst_bin)?;
+			Self::copy_directory_contents(&src_bin, &dst_bin)?;
 		}
 
 		// Copy libraries
 		let src_lib = package_path.join("lib");
 		let dst_lib = env_dir.join("usr/lib");
 		if src_lib.exists() {
-			self.copy_directory_contents(&src_lib, &dst_lib)?;
+			Self::copy_directory_contents(&src_lib, &dst_lib)?;
 		}
 
 		// Copy shared data
 		let src_share = package_path.join("share");
 		let dst_share = env_dir.join("usr/share");
 		if src_share.exists() {
-			self.copy_directory_contents(&src_share, &dst_share)?;
+			Self::copy_directory_contents(&src_share, &dst_share)?;
 		}
 
 		Ok(())
@@ -222,9 +222,8 @@ impl EnvironmentBuilder {
 
 	/// Copy directory contents
 	fn copy_directory_contents(
-		&self,
-		src: &PathBuf,
-		dst: &PathBuf,
+		src: &Path,
+		dst: &Path,
 	) -> Result<(), Box<dyn std::error::Error>> {
 		std::fs::create_dir_all(dst)?;
 
@@ -234,7 +233,7 @@ impl EnvironmentBuilder {
 			let dst_path = dst.join(entry.file_name());
 
 			if src_path.is_dir() {
-				self.copy_directory_contents(&src_path, &dst_path)?;
+				Self::copy_directory_contents(&src_path, &dst_path)?;
 			} else {
 				std::fs::copy(&src_path, &dst_path)?;
 
@@ -255,7 +254,7 @@ impl EnvironmentBuilder {
 	fn setup_environment_config(
 		&self,
 		env_spec: &IsolatedEnvironment,
-		env_dir: &PathBuf,
+		env_dir: &Path,
 	) -> Result<(), Box<dyn std::error::Error>> {
 		// Create /etc/environment
 		let env_file = env_dir.join("etc/environment");
@@ -268,7 +267,7 @@ impl EnvironmentBuilder {
 
 		// Add custom environment variables
 		for (key, value) in &env_spec.environment_vars {
-			env_content.push_str(&format!("{}={}\n", key, value));
+			env_content.push_str(&format!("{key}={value}\n"));
 		}
 
 		std::fs::write(&env_file, env_content)?;
@@ -290,7 +289,7 @@ impl EnvironmentBuilder {
 	fn generate_container_configs(
 		&self,
 		env_spec: &IsolatedEnvironment,
-		env_dir: &PathBuf,
+		env_dir: &Path,
 	) -> Result<(), Box<dyn std::error::Error>> {
 		// Generate Dockerfile
 		self.generate_dockerfile(env_spec, env_dir)?;
@@ -308,21 +307,21 @@ impl EnvironmentBuilder {
 	fn generate_dockerfile(
 		&self,
 		env_spec: &IsolatedEnvironment,
-		env_dir: &PathBuf,
+		env_dir: &Path,
 	) -> Result<(), Box<dyn std::error::Error>> {
 		let dockerfile_path = env_dir.join("Dockerfile");
 		let mut dockerfile_content = String::new();
 
 		// Base image
 		let base_image = env_spec.base_image.as_deref().unwrap_or("scratch");
-		dockerfile_content.push_str(&format!("FROM {}\n\n", base_image));
+		dockerfile_content.push_str(&format!("FROM {base_image}\n\n"));
 
 		// Copy environment
 		dockerfile_content.push_str("COPY . /\n\n");
 
 		// Set environment variables
 		for (key, value) in &env_spec.environment_vars {
-			dockerfile_content.push_str(&format!("ENV {}={}\n", key, value));
+			dockerfile_content.push_str(&format!("ENV {key}={value}\n"));
 		}
 
 		// Set PATH
@@ -346,7 +345,7 @@ impl EnvironmentBuilder {
 	fn generate_docker_compose(
 		&self,
 		env_spec: &IsolatedEnvironment,
-		env_dir: &PathBuf,
+		env_dir: &Path,
 	) -> Result<(), Box<dyn std::error::Error>> {
 		let compose_path = env_dir.join("docker-compose.yml");
 		let mut compose_content = String::new();
@@ -391,12 +390,12 @@ impl EnvironmentBuilder {
 
 			if let Some(memory) = env_spec.resource_limits.memory_mb {
 				compose_content
-					.push_str(&format!("          memory: {}M\n", memory));
+					.push_str(&format!("          memory: {memory}M\n"));
 			}
 
 			if let Some(cpus) = env_spec.resource_limits.cpu_cores {
 				compose_content
-					.push_str(&format!("          cpus: '{}'\n", cpus));
+					.push_str(&format!("          cpus: '{cpus}'\n"));
 			}
 		}
 
@@ -408,7 +407,7 @@ impl EnvironmentBuilder {
 	fn generate_vm_script(
 		&self,
 		env_spec: &IsolatedEnvironment,
-		env_dir: &PathBuf,
+		env_dir: &Path,
 	) -> Result<(), Box<dyn std::error::Error>> {
 		let script_path = env_dir.join("start-vm.sh");
 		let mut script_content = String::new();
@@ -425,9 +424,7 @@ impl EnvironmentBuilder {
 		script_content.push_str("  -smp 2 \\\n");
 		script_content.push_str("  -kernel vmlinuz \\\n");
 		script_content.push_str("  -initrd initrd.img \\\n");
-		script_content.push_str(&format!(
-			"  -append \"root=/dev/ram0 init=/sbin/init\" \\\n"
-		));
+		script_content.push_str("  -append \"root=/dev/ram0 init=/sbin/init\" \\\n");
 		script_content.push_str("  -netdev user,id=net0 \\\n");
 		script_content.push_str("  -device e1000,netdev=net0\n");
 
@@ -448,7 +445,7 @@ impl EnvironmentBuilder {
 	/// Create a minimal Linux environment
 	pub async fn create_minimal_linux(
 		&self,
-		output_dir: &PathBuf,
+		output_dir: &Path,
 	) -> Result<PathBuf, Box<dyn std::error::Error>> {
 		let env_spec = IsolatedEnvironment {
 			name: "minimal-linux".to_string(),
@@ -483,7 +480,7 @@ impl EnvironmentBuilder {
 		let env_dir = self.store_path.join("environments").join(name);
 
 		if !env_dir.exists() {
-			return Err(format!("Environment '{}' does not exist", name).into());
+			return Err(format!("Environment '{name}' does not exist").into());
 		}
 
 		println!("To enter the environment, run:");
@@ -505,11 +502,11 @@ impl EnvironmentBuilder {
 		let env_dir = self.store_path.join("environments").join(name);
 
 		if !env_dir.exists() {
-			return Err(format!("Environment '{}' does not exist", name).into());
+			return Err(format!("Environment '{name}' does not exist").into());
 		}
 
 		std::fs::remove_dir_all(&env_dir)?;
-		println!("Removed environment: {}", name);
+		println!("Removed environment: {name}");
 
 		Ok(())
 	}
@@ -575,7 +572,7 @@ impl EnvironmentBuilder {
 	/// Create a development environment
 	pub async fn create_dev_environment(
 		&self,
-		output_dir: &PathBuf,
+		output_dir: &Path,
 	) -> Result<PathBuf, Box<dyn std::error::Error>> {
 		let env_spec = IsolatedEnvironment {
 			name: "dev-environment".to_string(),

@@ -17,7 +17,6 @@ use ratatui::crossterm::terminal::{
 };
 use ratatui::prelude::CrosstermBackend;
 use ratatui::{Frame, Terminal};
-use std::fs::create_dir_all;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::Arc;

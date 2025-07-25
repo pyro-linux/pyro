@@ -78,7 +78,7 @@ set "PATH={};%PATH%"
 "#,
 				bin_path.display()
 			)),
-			_ => Err(format!("Unsupported shell: {}", shell).into()),
+			_ => Err(format!("Unsupported shell: {shell}").into()),
 		}
 	}
 
@@ -102,7 +102,7 @@ set "PATH={};%PATH%"
 				std::fs::create_dir_all(&profile_dir)?;
 				profile_dir.join("Microsoft.PowerShell_profile.ps1")
 			}
-			_ => return Err(format!("Unsupported shell: {}", shell).into()),
+			_ => return Err(format!("Unsupported shell: {shell}").into()),
 		};
 
 		// Create config directory if it doesn't exist
@@ -129,14 +129,14 @@ set "PATH={};%PATH%"
 			content.push_str(&setup_script);
 
 			std::fs::write(&config_file, content)?;
-			println!("✅ Shell integration installed for {}", shell);
+			println!("✅ Shell integration installed for {shell}");
 			println!("   Added to: {}", config_file.display());
 			println!(
 				"   Please restart your shell or run: source {}",
 				config_file.display()
 			);
 		} else {
-			println!("ℹ️  Shell integration already installed for {}", shell);
+			println!("ℹ️  Shell integration already installed for {shell}");
 		}
 
 		Ok(())
@@ -156,11 +156,11 @@ set "PATH={};%PATH%"
 			"fish" => home_dir.join(".config/fish/config.fish"),
 			"powershell" | "pwsh" => home_dir
 				.join("Documents/PowerShell/Microsoft.PowerShell_profile.ps1"),
-			_ => return Err(format!("Unsupported shell: {}", shell).into()),
+			_ => return Err(format!("Unsupported shell: {shell}").into()),
 		};
 
 		if !config_file.exists() {
-			println!("ℹ️  No shell configuration found for {}", shell);
+			println!("ℹ️  No shell configuration found for {shell}");
 			return Ok(());
 		}
 
@@ -195,7 +195,7 @@ set "PATH={};%PATH%"
 		let new_content = new_lines.join("\n");
 		std::fs::write(&config_file, new_content)?;
 
-		println!("✅ Shell integration removed for {}", shell);
+		println!("✅ Shell integration removed for {shell}");
 		println!("   Please restart your shell to apply changes");
 
 		Ok(())
@@ -286,7 +286,7 @@ set "PATH={};%PATH%"
 			if std::env::var("PSModulePath").is_ok() {
 				return "powershell".to_string();
 			}
-			return "cmd".to_string();
+			"cmd".to_string()
 		}
 
 		// Default to bash on Unix systems

@@ -1,4 +1,4 @@
-// main.rs
+// ui.rs
 
 use ratatui::{
 	prelude::*,

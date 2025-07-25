@@ -424,7 +424,8 @@ impl EnvironmentBuilder {
 		script_content.push_str("  -smp 2 \\\n");
 		script_content.push_str("  -kernel vmlinuz \\\n");
 		script_content.push_str("  -initrd initrd.img \\\n");
-		script_content.push_str("  -append \"root=/dev/ram0 init=/sbin/init\" \\\n");
+		script_content
+			.push_str("  -append \"root=/dev/ram0 init=/sbin/init\" \\\n");
 		script_content.push_str("  -netdev user,id=net0 \\\n");
 		script_content.push_str("  -device e1000,netdev=net0\n");
 

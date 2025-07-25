@@ -396,22 +396,22 @@ impl SystemBuilder {
 
 	/// Build using Meson
 	async fn build_meson(
-        &self,
-        _spec: &SystemPackageSpec,
-        _source_dir: &Path,
-        _env: &HashMap<String, String>,
-    ) -> Result<PathBuf, Box<dyn std::error::Error>> {
+		&self,
+		_spec: &SystemPackageSpec,
+		_source_dir: &Path,
+		_env: &HashMap<String, String>,
+	) -> Result<PathBuf, Box<dyn std::error::Error>> {
 		// Meson build implementation
 		Err("Meson builds not yet implemented".into())
 	}
 
 	/// Build using custom script
 	async fn build_custom(
-        &self,
-        spec: &SystemPackageSpec,
-        source_dir: &Path,
-        env: &HashMap<String, String>,
-    ) -> Result<PathBuf, Box<dyn std::error::Error>> {
+		&self,
+		spec: &SystemPackageSpec,
+		source_dir: &Path,
+		env: &HashMap<String, String>,
+	) -> Result<PathBuf, Box<dyn std::error::Error>> {
 		if let Some(script) = &spec.build_script {
 			let mut cmd = std::process::Command::new("sh");
 			cmd.current_dir(source_dir);
@@ -441,42 +441,42 @@ impl SystemBuilder {
 
 	/// Build Rust/Cargo project
 	async fn build_cargo(
-        &self,
-        _spec: &SystemPackageSpec,
-        _source_dir: &Path,
-        _env: &HashMap<String, String>,
-    ) -> Result<PathBuf, Box<dyn std::error::Error>> {
+		&self,
+		_spec: &SystemPackageSpec,
+		_source_dir: &Path,
+		_env: &HashMap<String, String>,
+	) -> Result<PathBuf, Box<dyn std::error::Error>> {
 		// Cargo build implementation
 		Err("Cargo builds not yet implemented".into())
 	}
 
 	/// Build LLVM
 	async fn build_llvm(
-        &self,
-        _spec: &SystemPackageSpec,
-        _source_dir: &Path,
-        _env: &HashMap<String, String>,
-    ) -> Result<PathBuf, Box<dyn std::error::Error>> {
+		&self,
+		_spec: &SystemPackageSpec,
+		_source_dir: &Path,
+		_env: &HashMap<String, String>,
+	) -> Result<PathBuf, Box<dyn std::error::Error>> {
 		// LLVM build implementation
 		Err("LLVM builds not yet implemented".into())
 	}
 
 	/// Build Linux kernel
 	async fn build_kernel(
-        &self,
-        _spec: &SystemPackageSpec,
-        _source_dir: &Path,
-        _env: &HashMap<String, String>,
-    ) -> Result<PathBuf, Box<dyn std::error::Error>> {
+		&self,
+		_spec: &SystemPackageSpec,
+		_source_dir: &Path,
+		_env: &HashMap<String, String>,
+	) -> Result<PathBuf, Box<dyn std::error::Error>> {
 		// Kernel build implementation
 		Err("Kernel builds not yet implemented".into())
 	}
 
 	/// Copy directory recursively
-    fn copy_directory(
-        src: &Path,
-        dst: &Path,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+	fn copy_directory(
+		src: &Path,
+		dst: &Path,
+	) -> Result<(), Box<dyn std::error::Error>> {
 		std::fs::create_dir_all(dst)?;
 
 		for entry in std::fs::read_dir(src)? {

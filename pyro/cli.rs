@@ -581,9 +581,7 @@ impl PyroApp {
 	) -> Result<(), Box<dyn std::error::Error>> {
 		match command {
 			SystemCommands::Build { package, arch } => {
-				println!(
-					"Building system package: {package} (arch: {arch:?})"
-				);
+				println!("Building system package: {package} (arch: {arch:?})");
 
 				let spec = SystemPackageSpec {
 					name: package.clone(),
@@ -679,9 +677,9 @@ impl PyroApp {
 					Ok(_) => {
 						println!("✅ Entered isolated environment: {name}")
 					}
-					Err(e) => println!(
-						"❌ Failed to enter isolated environment: {e}"
-					),
+					Err(e) => {
+						println!("❌ Failed to enter isolated environment: {e}")
+					}
 				}
 			}
 			IsolateCommands::Remove { name } => {
@@ -708,9 +706,9 @@ impl PyroApp {
 							);
 						}
 					}
-					Err(e) => println!(
-						"❌ Failed to list isolated environments: {e}"
-					),
+					Err(e) => {
+						println!("❌ Failed to list isolated environments: {e}")
+					}
 				}
 			}
 		}

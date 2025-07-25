@@ -177,9 +177,7 @@ impl RustcBuilder {
 			.map_err(|e| BuildError::IoError(e.to_string()))?;
 
 		toml::from_str(&content).map_err(|e| {
-			BuildError::BuildFailed(format!(
-				"Failed to parse Cargo.toml: {e}"
-			))
+			BuildError::BuildFailed(format!("Failed to parse Cargo.toml: {e}"))
 		})
 	}
 
@@ -514,8 +512,7 @@ impl RustcBuilder {
 		_target_dir: &Path,
 		build_log: &mut String,
 	) -> Result<(), BuildError> {
-		build_log
-			.push_str(&format!("Downloading crate: {name} v{version}\n"));
+		build_log.push_str(&format!("Downloading crate: {name} v{version}\n"));
 		// Implementation would download and extract crate from crates.io
 		Ok(())
 	}

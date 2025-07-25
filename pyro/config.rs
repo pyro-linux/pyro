@@ -38,8 +38,11 @@ pub enum PackageSource {
 pub struct BuildConfig {
     pub max_jobs: usize,
     pub sandbox: bool,
-    pub pure_builds: bool,
-    pub cache_builds: bool,
+    pub cache_dir: PathBuf,
+    pub system_packages: bool,
+    pub cross_compile: Option<String>,
+    pub toolchain_path: Option<PathBuf>,
+    pub sysroot: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,8 +61,11 @@ impl Default for PyroConfig {
             build_config: BuildConfig {
                 max_jobs: std::thread::available_parallelism().map_or(1, |n| n.get()),
                 sandbox: true,
-                pure_builds: true,
-                cache_builds: true,
+                cache_dir: PathBuf::from(".pyro/cache"),
+                system_packages: false,
+                cross_compile: None,
+                toolchain_path: None,
+                sysroot: None,
             },
             store_config: StoreConfig {
                 store_path: PathBuf::from("/nix/store"),

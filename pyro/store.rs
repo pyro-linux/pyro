@@ -123,6 +123,179 @@ impl PyroStore {
         Ok(())
     }
 
+    /// Install a package to the store
+    pub async fn install_package(&self, spec: &PackageSpec, build_output: &std::path::Path) -> Result<String, Box<dyn std::error::Error>> {
+        let package_hash = self.compute_package_hash(spec);
+        let package_path = self.config.store_path.join(&package_hash);
+        
+        if package_path.exists() {
+            return Ok(package_hash);
+        }
+        
+        // Create package directory structure
+        std::fs::create_dir_all(&package_path)?;
+        
+        let bin_path = package_path.join("bin");
+        let lib_path = package_path.join("lib");
+        let share_path = package_path.join("share");
+        
+        std::fs::create_dir_all(&bin_path)?;
+        std::fs::create_dir_all(&lib_path)?;
+        std::fs::create_dir_all(&share_path)?;
+        
+        // Copy build artifacts to appropriate directories
+        self.install_build_artifacts(build_output, &package_path).await?;
+        
+        // Store package metadata
+        let metadata_path = package_path.join("metadata.json");
+        let metadata = serde_json::to_string_pretty(spec)?;
+        std::fs::write(metadata_path, metadata)?;
+        
+        // Create symlinks for binaries
+        self.create_binary_symlinks(&package_hash, &bin_path).await?;
+        
+        Ok(package_hash)
+    }
+    
+    /// Install build artifacts to the package directory
+    async fn install_build_artifacts(&self, build_output: &std::path::Path, package_path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+        let bin_path = package_path.join("bin");
+        let lib_path = package_path.join("lib");
+        
+        // Look for common build output patterns
+        if let Ok(entries) = std::fs::read_dir(build_output) {
+            for entry in entries {
+                let entry = entry?;
+                let path = entry.path();
+                let file_name = path.file_name().unwrap().to_string_lossy();
+                
+                // Install executables
+                if path.is_file() && self.is_executable(&path) {
+                    let dest = bin_path.join(&*file_name);
+                    std::fs::copy(&path, &dest)?;
+                    
+                    // Make executable on Unix systems
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        let mut perms = std::fs::metadata(&dest)?.permissions();
+                        perms.set_mode(0o755);
+                        std::fs::set_permissions(&dest, perms)?;
+                    }
+                }
+                
+                // Install libraries
+                if path.is_file() && self.is_library(&path) {
+                    let dest = lib_path.join(&*file_name);
+                    std::fs::copy(&path, &dest)?;
+                }
+            }
+        }
+        
+        // Look in target/release for Rust projects
+        let target_release = build_output.join("target").join("release");
+        if target_release.exists() {
+            if let Ok(entries) = std::fs::read_dir(&target_release) {
+                for entry in entries {
+                    let entry = entry?;
+                    let path = entry.path();
+                    
+                    if path.is_file() && self.is_executable(&path) {
+                        let file_name = path.file_name().unwrap().to_string_lossy();
+                        let dest = bin_path.join(&*file_name);
+                        std::fs::copy(&path, &dest)?;
+                        
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::fs::PermissionsExt;
+                            let mut perms = std::fs::metadata(&dest)?.permissions();
+                            perms.set_mode(0o755);
+                            std::fs::set_permissions(&dest, perms)?;
+                        }
+                    }
+                }
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Check if a file is executable
+    fn is_executable(&self, path: &std::path::Path) -> bool {
+        if let Some(extension) = path.extension() {
+            let ext = extension.to_string_lossy().to_lowercase();
+            if ext == "exe" {
+                return true;
+            }
+        }
+        
+        // On Unix, check if file has execute permissions
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(metadata) = std::fs::metadata(path) {
+                return metadata.permissions().mode() & 0o111 != 0;
+            }
+        }
+        
+        // On Windows, check common executable extensions
+        #[cfg(windows)]
+        {
+            if let Some(extension) = path.extension() {
+                let ext = extension.to_string_lossy().to_lowercase();
+                return ext == "exe" || ext == "bat" || ext == "cmd";
+            }
+        }
+        
+        false
+    }
+    
+    /// Check if a file is a library
+    fn is_library(&self, path: &std::path::Path) -> bool {
+        if let Some(extension) = path.extension() {
+            let ext = extension.to_string_lossy().to_lowercase();
+            return ext == "so" || ext == "dylib" || ext == "dll" || ext == "a" || ext == "lib";
+        }
+        false
+    }
+    
+    /// Create symlinks for binaries in the global bin directory
+    async fn create_binary_symlinks(&self, _package_hash: &str, bin_path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+        let global_bin = self.config.store_path.join("bin");
+        std::fs::create_dir_all(&global_bin)?;
+        
+        if let Ok(entries) = std::fs::read_dir(bin_path) {
+            for entry in entries {
+                let entry = entry?;
+                let path = entry.path();
+                
+                if path.is_file() {
+                    let file_name = path.file_name().unwrap();
+                    let symlink_path = global_bin.join(file_name);
+                    
+                    // Remove existing symlink if it exists
+                    if symlink_path.exists() {
+                        std::fs::remove_file(&symlink_path)?;
+                    }
+                    
+                    // Create symlink
+                    #[cfg(unix)]
+                    {
+                        std::os::unix::fs::symlink(&path, &symlink_path)?;
+                    }
+                    
+                    #[cfg(windows)]
+                    {
+                        // On Windows, copy the file instead of creating a symlink
+                        std::fs::copy(&path, &symlink_path)?;
+                    }
+                }
+            }
+        }
+        
+        Ok(())
+    }
+
     /// Get package from store
     pub fn get_package(&mut self, spec: &PackageSpec) -> Option<&mut StorePath> {
         let hash = self.compute_package_hash(spec);

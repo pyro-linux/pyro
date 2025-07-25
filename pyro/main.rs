@@ -26,8 +26,11 @@ mod builder;
 mod cli;
 mod config;
 mod dependency;
+mod environment;
 mod store;
 mod ui;
+mod system;
+mod isolation;
 
 #[derive(Debug)]
 enum ProgressMsg {

@@ -7,6 +7,12 @@ use std::process::Command;
 use std::time::{Instant, SystemTime};
 use tokio::sync::Semaphore;
 use std::sync::Arc;
+use reqwest;
+
+use tar::Archive;
+use flate2::read::GzDecoder;
+
+
 
 /// Nix-like package builder with sandboxing and reproducibility
 #[derive(Debug)]
@@ -27,19 +33,23 @@ pub struct BuildContext {
 
 #[derive(Debug)]
 pub enum BuildError {
-    DependencyNotFound(String),
+    DependencyResolutionFailed(String),
     BuildFailed(String),
     SandboxViolation(String),
-    IoError(std::io::Error),
+    IoError(String),
+    NetworkError(String),
+    GitError(String),
 }
 
 impl std::fmt::Display for BuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BuildError::DependencyNotFound(dep) => write!(f, "Dependency not found: {}", dep),
+            BuildError::DependencyResolutionFailed(msg) => write!(f, "Dependency resolution failed: {}", msg),
             BuildError::BuildFailed(msg) => write!(f, "Build failed: {}", msg),
             BuildError::SandboxViolation(msg) => write!(f, "Sandbox violation: {}", msg),
-            BuildError::IoError(e) => write!(f, "IO error: {}", e),
+            BuildError::IoError(msg) => write!(f, "IO error: {}", msg),
+            BuildError::NetworkError(msg) => write!(f, "Network error: {}", msg),
+            BuildError::GitError(msg) => write!(f, "Git error: {}", msg),
         }
     }
 }
@@ -48,7 +58,7 @@ impl std::error::Error for BuildError {}
 
 impl From<std::io::Error> for BuildError {
     fn from(error: std::io::Error) -> Self {
-        BuildError::IoError(error)
+        BuildError::IoError(error.to_string())
     }
 }
 
@@ -96,7 +106,7 @@ impl PyroBuilder {
             if dep_result.success {
                 dependencies.push(dep_result.store_path);
             } else {
-                return Err(BuildError::DependencyNotFound(dep_name.clone()));
+                return Err(BuildError::DependencyResolutionFailed(dep_name.clone()));
             }
         }
 
@@ -137,7 +147,7 @@ impl PyroBuilder {
         }
 
         // Set build flags for reproducibility
-        if self.config.pure_builds {
+        if self.config.sandbox {
             environment.insert("SOURCE_DATE_EPOCH".to_string(), "1".to_string());
             environment.insert("TZ".to_string(), "UTC".to_string());
         }
@@ -233,28 +243,23 @@ impl PyroBuilder {
     async fn download_and_extract(&self, url: &str, dest: &Path, build_log: &mut String) -> Result<(), BuildError> {
         build_log.push_str(&format!("Downloading from {}\n", url));
         
-        let output = Command::new("curl")
-            .arg("-L")
-            .arg("-o")
-            .arg("source.tar.gz")
-            .arg(url)
-            .current_dir(dest)
-            .output()?;
-
-        if !output.status.success() {
-            return Err(BuildError::BuildFailed("Failed to download source".to_string()));
+        let response = reqwest::get(url).await
+            .map_err(|e| BuildError::NetworkError(e.to_string()))?;
+        
+        if !response.status().is_success() {
+            return Err(BuildError::NetworkError(format!("Failed to download: {}", response.status())));
         }
 
+        let bytes = response.bytes().await
+            .map_err(|e| BuildError::NetworkError(e.to_string()))?;
+        
         build_log.push_str("Extracting source archive\n");
-        let output = Command::new("tar")
-            .arg("-xzf")
-            .arg("source.tar.gz")
-            .current_dir(dest)
-            .output()?;
-
-        if !output.status.success() {
-            return Err(BuildError::BuildFailed("Failed to extract source".to_string()));
-        }
+        
+        // Extract the archive directly from memory
+        let tar = GzDecoder::new(bytes.as_ref());
+        let mut archive = Archive::new(tar);
+        archive.unpack(dest)
+            .map_err(|e| BuildError::IoError(e.to_string()))?;
 
         Ok(())
     }
@@ -308,39 +313,173 @@ impl PyroBuilder {
     async fn run_build_script(&self, context: &BuildContext, script: &str, build_log: &mut String) -> Result<bool, BuildError> {
         build_log.push_str("Running custom build script\n");
         
-        let mut cmd = Command::new("sh");
-        cmd.arg("-c").arg(script)
-            .current_dir(&context.build_dir)
-            .envs(&context.environment);
+        // Split script into commands
+        let commands: Vec<&str> = script.split('\n').filter(|line| !line.trim().is_empty()).collect();
+        
+        for command in commands {
+            let command = command.trim();
+            if command.starts_with('#') {
+                continue; // Skip comments
+            }
+            
+            build_log.push_str(&format!("Running: {}\n", command));
+            
+            let mut cmd = if cfg!(target_os = "windows") {
+                let mut cmd = Command::new("cmd");
+                cmd.args(["/C", command]);
+                cmd
+            } else {
+                let mut cmd = Command::new("sh");
+                cmd.args(["-c", command]);
+                cmd
+            };
+            
+            cmd.current_dir(&context.build_dir)
+                .envs(&context.environment);
 
-        if self.config.sandbox {
-            // Add sandboxing flags (simplified)
-            cmd.env("PATH", "/usr/bin:/bin");
+            if self.config.sandbox {
+                // Add sandboxing flags (simplified)
+                cmd.env("PATH", "/usr/bin:/bin");
+            }
+
+            let output = cmd.output()?;
+            build_log.push_str(&String::from_utf8_lossy(&output.stdout));
+            if !output.stderr.is_empty() {
+                build_log.push_str(&String::from_utf8_lossy(&output.stderr));
+            }
+            
+            if !output.status.success() {
+                build_log.push_str(&format!("Command failed with exit code: {:?}\n", output.status.code()));
+                return Ok(false);
+            }
         }
-
-        let output = cmd.output()?;
-        build_log.push_str(&String::from_utf8_lossy(&output.stdout));
-        build_log.push_str(&String::from_utf8_lossy(&output.stderr));
-
-        Ok(output.status.success())
+        
+        build_log.push_str("Custom build completed successfully\n");
+        Ok(true)
     }
 
     /// Run default build (cargo build for Rust packages)
     async fn run_default_build(&self, context: &BuildContext, build_log: &mut String) -> Result<bool, BuildError> {
-        build_log.push_str("Running default build (cargo)\n");
-        
         let source_dir = context.build_dir.join("source");
+        
+        // Check if this is a Rust project
+        let cargo_toml = source_dir.join("Cargo.toml");
+        if cargo_toml.exists() {
+            build_log.push_str("Detected Rust project, running cargo build\n");
+            return self.execute_cargo_build(&source_dir, &context.environment, build_log).await;
+        }
+        
+        // Check if this is a Node.js project
+        let package_json = source_dir.join("package.json");
+        if package_json.exists() {
+            build_log.push_str("Detected Node.js project, running npm install\n");
+            return self.execute_npm_build(&source_dir, &context.environment, build_log).await;
+        }
+        
+        // Check if this is a Python project
+        let setup_py = source_dir.join("setup.py");
+        let pyproject_toml = source_dir.join("pyproject.toml");
+        if setup_py.exists() || pyproject_toml.exists() {
+            build_log.push_str("Detected Python project, running pip install\n");
+            return self.execute_python_build(&source_dir, &context.environment, build_log).await;
+        }
+        
+        // Check for Makefile
+        let makefile = source_dir.join("Makefile");
+        if makefile.exists() {
+            build_log.push_str("Detected Makefile, running make\n");
+            return self.execute_make_build(&source_dir, &context.environment, build_log).await;
+        }
+        
+        build_log.push_str("No recognized build system found, assuming pre-built\n");
+        Ok(true)
+    }
+    
+    /// Execute cargo build for Rust projects
+    async fn execute_cargo_build(&self, build_dir: &Path, environment: &HashMap<String, String>, build_log: &mut String) -> Result<bool, BuildError> {
         let mut cmd = Command::new("cargo");
-        cmd.arg("build")
-            .arg("--release")
-            .current_dir(&source_dir)
-            .envs(&context.environment);
-
+        cmd.args(["build", "--release"])
+            .current_dir(build_dir)
+            .envs(environment);
+            
         let output = cmd.output()?;
         build_log.push_str(&String::from_utf8_lossy(&output.stdout));
-        build_log.push_str(&String::from_utf8_lossy(&output.stderr));
-
-        Ok(output.status.success())
+        if !output.stderr.is_empty() {
+            build_log.push_str(&String::from_utf8_lossy(&output.stderr));
+        }
+        
+        if output.status.success() {
+            build_log.push_str("Cargo build completed successfully\n");
+            Ok(true)
+        } else {
+            build_log.push_str(&format!("Cargo build failed with exit code: {:?}\n", output.status.code()));
+            Ok(false)
+        }
+    }
+    
+    /// Execute npm build for Node.js projects
+    async fn execute_npm_build(&self, build_dir: &Path, environment: &HashMap<String, String>, build_log: &mut String) -> Result<bool, BuildError> {
+        let mut cmd = Command::new("npm");
+        cmd.args(["install"])
+            .current_dir(build_dir)
+            .envs(environment);
+            
+        let output = cmd.output()?;
+        build_log.push_str(&String::from_utf8_lossy(&output.stdout));
+        if !output.stderr.is_empty() {
+            build_log.push_str(&String::from_utf8_lossy(&output.stderr));
+        }
+        
+        if output.status.success() {
+            build_log.push_str("npm install completed successfully\n");
+            Ok(true)
+        } else {
+            build_log.push_str(&format!("npm install failed with exit code: {:?}\n", output.status.code()));
+            Ok(false)
+        }
+    }
+    
+    /// Execute pip install for Python projects
+    async fn execute_python_build(&self, build_dir: &Path, environment: &HashMap<String, String>, build_log: &mut String) -> Result<bool, BuildError> {
+        let mut cmd = Command::new("pip");
+        cmd.args(["install", "."])
+            .current_dir(build_dir)
+            .envs(environment);
+            
+        let output = cmd.output()?;
+        build_log.push_str(&String::from_utf8_lossy(&output.stdout));
+        if !output.stderr.is_empty() {
+            build_log.push_str(&String::from_utf8_lossy(&output.stderr));
+        }
+        
+        if output.status.success() {
+            build_log.push_str("pip install completed successfully\n");
+            Ok(true)
+        } else {
+            build_log.push_str(&format!("pip install failed with exit code: {:?}\n", output.status.code()));
+            Ok(false)
+        }
+    }
+    
+    /// Execute make for projects with Makefile
+    async fn execute_make_build(&self, build_dir: &Path, environment: &HashMap<String, String>, build_log: &mut String) -> Result<bool, BuildError> {
+        let mut cmd = Command::new("make");
+        cmd.current_dir(build_dir)
+            .envs(environment);
+            
+        let output = cmd.output()?;
+        build_log.push_str(&String::from_utf8_lossy(&output.stdout));
+        if !output.stderr.is_empty() {
+            build_log.push_str(&String::from_utf8_lossy(&output.stderr));
+        }
+        
+        if output.status.success() {
+            build_log.push_str("make completed successfully\n");
+            Ok(true)
+        } else {
+            build_log.push_str(&format!("make failed with exit code: {:?}\n", output.status.code()));
+            Ok(false)
+        }
     }
 
     /// Install package to store path
@@ -365,16 +504,120 @@ impl PyroBuilder {
         Ok(())
     }
 
-    /// Resolve dependency specification
+    /// Resolve a dependency to a concrete package specification
     async fn resolve_dependency(&self, dep_name: &str) -> Result<PackageSpec, BuildError> {
-        // Simplified dependency resolution
-        // In a real implementation, this would query a package registry
+        // Try to resolve from crates.io first
+        if let Ok(spec) = self.resolve_from_crates_io(dep_name).await {
+            return Ok(spec);
+        }
+        
+        // Try to resolve from npm registry
+        if let Ok(spec) = self.resolve_from_npm(dep_name).await {
+            return Ok(spec);
+        }
+        
+        // Try to resolve from PyPI
+        if let Ok(spec) = self.resolve_from_pypi(dep_name).await {
+            return Ok(spec);
+        }
+        
+        Err(BuildError::DependencyResolutionFailed(format!("Dependency {} not found in any registry", dep_name)))
+    }
+    
+    /// Resolve dependency from crates.io
+    async fn resolve_from_crates_io(&self, dep_name: &str) -> Result<PackageSpec, BuildError> {
+        let url = format!("https://crates.io/api/v1/crates/{}", dep_name);
+        let response = reqwest::get(&url).await
+            .map_err(|e| BuildError::NetworkError(e.to_string()))?;
+        
+        if !response.status().is_success() {
+            return Err(BuildError::DependencyResolutionFailed(format!("Crate {} not found on crates.io", dep_name)));
+        }
+        
+        let crate_info: serde_json::Value = response.json().await
+            .map_err(|e| BuildError::NetworkError(e.to_string()))?;
+        
+        let latest_version = crate_info["crate"]["max_version"].as_str()
+            .ok_or_else(|| BuildError::DependencyResolutionFailed("No version found".to_string()))?;
+        
         Ok(PackageSpec {
             name: dep_name.to_string(),
-            version: Some("latest".to_string()),
+            version: Some(latest_version.to_string()),
             source: PackageSource::Crates {
                 name: dep_name.to_string(),
-                version: "latest".to_string(),
+                version: latest_version.to_string(),
+            },
+            build_inputs: vec![],
+            runtime_inputs: vec![],
+            environment: HashMap::new(),
+            build_script: None,
+        })
+    }
+    
+    /// Resolve dependency from npm registry
+    async fn resolve_from_npm(&self, dep_name: &str) -> Result<PackageSpec, BuildError> {
+        let url = format!("https://registry.npmjs.org/{}", dep_name);
+        let response = reqwest::get(&url).await
+            .map_err(|e| BuildError::NetworkError(e.to_string()))?;
+        
+        if !response.status().is_success() {
+            return Err(BuildError::DependencyResolutionFailed(format!("Package {} not found on npm", dep_name)));
+        }
+        
+        let package_info: serde_json::Value = response.json().await
+            .map_err(|e| BuildError::NetworkError(e.to_string()))?;
+        
+        let latest_version = package_info["dist-tags"]["latest"].as_str()
+            .ok_or_else(|| BuildError::DependencyResolutionFailed("No version found".to_string()))?;
+        
+        let tarball_url = package_info["versions"][latest_version]["dist"]["tarball"].as_str()
+            .ok_or_else(|| BuildError::DependencyResolutionFailed("No tarball URL found".to_string()))?;
+        
+        Ok(PackageSpec {
+            name: dep_name.to_string(),
+            version: Some(latest_version.to_string()),
+            source: PackageSource::Url {
+                url: tarball_url.to_string(),
+                hash: String::new(),
+            },
+            build_inputs: vec![],
+            runtime_inputs: vec![],
+            environment: HashMap::new(),
+            build_script: None,
+        })
+    }
+    
+    /// Resolve dependency from PyPI
+    async fn resolve_from_pypi(&self, dep_name: &str) -> Result<PackageSpec, BuildError> {
+        let url = format!("https://pypi.org/pypi/{}/json", dep_name);
+        let response = reqwest::get(&url).await
+            .map_err(|e| BuildError::NetworkError(e.to_string()))?;
+        
+        if !response.status().is_success() {
+            return Err(BuildError::DependencyResolutionFailed(format!("Package {} not found on PyPI", dep_name)));
+        }
+        
+        let package_info: serde_json::Value = response.json().await
+            .map_err(|e| BuildError::NetworkError(e.to_string()))?;
+        
+        let latest_version = package_info["info"]["version"].as_str()
+            .ok_or_else(|| BuildError::DependencyResolutionFailed("No version found".to_string()))?;
+        
+        // Find source distribution URL
+        let urls = package_info["urls"].as_array()
+            .ok_or_else(|| BuildError::DependencyResolutionFailed("No URLs found".to_string()))?;
+        
+        let source_url = urls.iter()
+            .find(|url| url["packagetype"].as_str() == Some("sdist"))
+            .and_then(|url| url["url"].as_str())
+            .ok_or_else(|| BuildError::DependencyResolutionFailed("No source distribution found".to_string()))?;
+        
+        Ok(PackageSpec {
+            name: dep_name.to_string(),
+            version: Some(latest_version.to_string()),
+            source: PackageSource::Url {
+                url: source_url.to_string(),
+                hash: String::new(),
             },
             build_inputs: vec![],
             runtime_inputs: vec![],

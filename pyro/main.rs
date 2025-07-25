@@ -17,21 +17,21 @@ use ratatui::crossterm::terminal::{
 };
 use ratatui::prelude::CrosstermBackend;
 use ratatui::{Frame, Terminal};
-use std::process::{Command, Stdio};
-use std::sync::Arc;
 use std::fs::create_dir_all;
 use std::path::Path;
+use std::process::{Command, Stdio};
+use std::sync::Arc;
 
 mod builder;
 mod cli;
 mod config;
 mod dependency;
 mod environment;
-mod store;
-mod ui;
-mod system;
 mod isolation;
 mod rustc_builder;
+mod store;
+mod system;
+mod ui;
 
 #[derive(Debug)]
 enum ProgressMsg {
@@ -42,18 +42,28 @@ enum ProgressMsg {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let cli = Cli::parse();
-	
+
 	// Check if we should run in TUI mode (no command specified)
-	if matches!(cli.command, Commands::Install { .. } | Commands::Remove { .. } | 
-				 Commands::Update { .. } | Commands::Search { .. } | Commands::Show { .. } |
-				 Commands::List { .. } | Commands::Gc { .. } | Commands::StoreInfo |
-				 Commands::Build { .. } | Commands::Init { .. } | Commands::Graph { .. }) {
+	if matches!(
+		cli.command,
+		Commands::Install { .. }
+			| Commands::Remove { .. }
+			| Commands::Update { .. }
+			| Commands::Search { .. }
+			| Commands::Show { .. }
+			| Commands::List { .. }
+			| Commands::Gc { .. }
+			| Commands::StoreInfo
+			| Commands::Build { .. }
+			| Commands::Init { .. }
+			| Commands::Graph { .. }
+	) {
 		// Run CLI mode
 		let mut app = PyroApp::new(&cli).await?;
 		app.run(cli.command).await?;
 		return Ok(());
 	}
-	
+
 	// Fallback to TUI mode for demonstration
 	run_tui_mode().await
 }

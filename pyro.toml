@@ -51,8 +51,8 @@ echo "Custom build completed"
 [build_config]
 max_jobs = 4
 sandbox = true
-pure_builds = true
-cache_builds = true
+cache_dir = "C:\\pyro\\cache"
+system_packages = false
 
 # Store configuration
 [store_config]

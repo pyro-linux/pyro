@@ -2,6 +2,9 @@ use clap::{Parser, Subcommand};
 use crate::config::{PackageSource, PackageSpec, PyroConfig};
 use crate::store::PyroStore;
 use crate::builder::PyroBuilder;
+use crate::environment::EnvironmentManager;
+use crate::system::{SystemBuilder, SystemPackageSpec};
+use crate::isolation::{EnvironmentBuilder, IsolatedEnvironment, NetworkConfig};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -90,12 +93,96 @@ pub enum Commands {
         #[arg(short, long, default_value = "dot")]
         format: String,
     },
+    /// Environment management
+    Env {
+        #[command(subcommand)]
+        command: EnvCommands,
+    },
+    /// System package management
+    System {
+        #[command(subcommand)]
+        command: SystemCommands,
+    },
+    /// Create isolated environments
+    Isolate {
+        #[command(subcommand)]
+        command: IsolateCommands,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum EnvCommands {
+    /// Set up shell integration
+    Setup {
+        /// Shell to set up (bash, zsh, fish, powershell)
+        #[arg(short, long)]
+        shell: Option<String>,
+    },
+    /// Remove shell integration
+    Remove {
+        /// Shell to remove integration from
+        #[arg(short, long)]
+        shell: Option<String>,
+    },
+    /// Show environment information
+    Info,
+    /// Generate shell setup script
+    Script {
+        /// Shell type (bash, zsh, fish, powershell)
+        shell: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SystemCommands {
+    /// Build system packages
+    Build {
+        /// Package specification
+        package: String,
+        /// Target architecture
+        #[arg(long)]
+        arch: Option<String>,
+    },
+    /// Install system dependencies
+    Install {
+        /// System package names
+        packages: Vec<String>,
+    },
+    /// Show system information
+    Info,
+}
+
+#[derive(Subcommand)]
+pub enum IsolateCommands {
+    /// Create new isolated environment
+    Create {
+        /// Environment name
+        name: String,
+        /// Base packages to include
+        #[arg(long)]
+        packages: Vec<String>,
+    },
+    /// Enter isolated environment
+    Enter {
+        /// Environment name
+        name: String,
+    },
+    /// Remove isolated environment
+    Remove {
+        /// Environment name
+        name: String,
+    },
+    /// List isolated environments
+    List,
 }
 
 pub struct PyroApp {
     config: PyroConfig,
     store: Arc<tokio::sync::Mutex<PyroStore>>,
     builder: PyroBuilder,
+    env_manager: EnvironmentManager,
+    system_builder: SystemBuilder,
+    isolation_builder: EnvironmentBuilder,
 }
 
 impl PyroApp {
@@ -114,15 +201,27 @@ impl PyroApp {
         }
 
         // Initialize store
-        let store = Arc::new(tokio::sync::Mutex::new(PyroStore::new(store_config)?));
+        let store = Arc::new(tokio::sync::Mutex::new(PyroStore::new(store_config.clone())?));
         
         // Initialize builder
         let builder = PyroBuilder::new(config.build_config.clone(), store.clone());
+        
+        // Initialize environment manager
+        let env_manager = EnvironmentManager::new(store_config.store_path.clone());
+        
+        // Initialize system builder
+        let system_builder = SystemBuilder::new(config.build_config.clone(), store_config.store_path.clone());
+        
+        // Initialize isolation builder
+        let isolation_builder = EnvironmentBuilder::new(config.clone(), store_config.store_path.clone());
 
         Ok(PyroApp {
             config,
             store,
             builder,
+            env_manager,
+            system_builder,
+            isolation_builder,
         })
     }
 
@@ -161,6 +260,15 @@ impl PyroApp {
             Commands::Graph { package, format } => {
                 self.show_dependency_graph(package, format).await
             }
+            Commands::Env { command } => {
+                self.handle_env_command(command).await
+            }
+            Commands::System { command } => {
+                self.handle_system_command(command).await
+            }
+            Commands::Isolate { command } => {
+                self.handle_isolate_command(command).await
+            }
         }
     }
 
@@ -175,11 +283,13 @@ impl PyroApp {
             match result {
                 Ok(build_result) => {
                     if build_result.success {
-                        println!("✅ Successfully installed {}", spec.name);
+                        // Install to store
+                        let store = self.store.lock().await;
+                        let package_hash = store.install_package(&spec, &build_result.store_path.path).await?;
                         
-                        // Add to store
-                        let mut store = self.store.lock().await;
-                        store.add_package(&spec, build_result)?;
+                        println!("✅ Successfully installed {}", spec.name);
+                        println!("Package hash: {}", package_hash);
+                        println!("Binaries available in: {}/bin", self.config.store_config.store_path.display());
                     } else {
                         println!("❌ Failed to install {}", spec.name);
                         println!("Build log:\n{}", build_result.build_log);
@@ -309,6 +419,155 @@ impl PyroApp {
         println!("Dependency graph for {} (format: {})", package, format);
         // Implementation would generate and display dependency graph
         println!("Dependency graph functionality not yet implemented");
+        Ok(())
+    }
+
+    async fn handle_env_command(&self, command: EnvCommands) -> Result<(), Box<dyn std::error::Error>> {
+        match command {
+            EnvCommands::Setup { shell } => {
+                let shell_type = shell.unwrap_or_else(|| self.env_manager.detect_shell());
+                println!("Setting up shell integration for: {}", shell_type);
+                
+                match self.env_manager.setup_shell_integration(&shell_type) {
+                    Ok(_) => println!("✅ Successfully set up shell integration for {}", shell_type),
+                    Err(e) => println!("❌ Failed to set up shell integration: {}", e),
+                }
+            }
+            EnvCommands::Remove { shell } => {
+                let shell_type = shell.unwrap_or_else(|| self.env_manager.detect_shell());
+                println!("Removing shell integration for: {}", shell_type);
+                
+                match self.env_manager.remove_shell_integration(&shell_type) {
+                    Ok(_) => println!("✅ Successfully removed shell integration for {}", shell_type),
+                    Err(e) => println!("❌ Failed to remove shell integration: {}", e),
+                }
+            }
+            EnvCommands::Info => {
+                println!("Environment information:");
+                println!("Store path: {}", self.config.store_config.store_path.display());
+                println!("Current shell: {}", self.env_manager.detect_shell());
+                
+                let env_vars = self.env_manager.get_environment_variables();
+                println!("Environment variables:");
+                for (key, value) in env_vars {
+                    println!("  {}={}", key, value);
+                }
+            }
+            EnvCommands::Script { shell } => {
+                println!("Generating shell setup script for: {}", shell);
+                
+                match self.env_manager.generate_shell_script(&shell) {
+                    Ok(script) => println!("{}", script),
+                    Err(e) => println!("❌ Failed to generate shell script: {}", e),
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn handle_system_command(&self, command: SystemCommands) -> Result<(), Box<dyn std::error::Error>> {
+        match command {
+            SystemCommands::Build { package, arch } => {
+                println!("Building system package: {} (arch: {:?})", package, arch);
+                
+                let spec = SystemPackageSpec {
+                    name: package.clone(),
+                    version: "latest".to_string(),
+                    arch: arch.unwrap_or_else(|| "x86_64".to_string()),
+                    dependencies: vec![],
+                    source: None,
+                    build_type: None,
+                    build_inputs: vec![],
+                    runtime_inputs: vec![],
+                    environment: HashMap::new(),
+                    build_script: None,
+                    configure_args: None,
+                    make_args: None,
+                    install_prefix: None,
+                    cross_compile_target: None,
+                };
+                
+                match self.system_builder.build_package(&spec).await {
+                    Ok(_) => println!("✅ Successfully built system package: {}", package),
+                    Err(e) => println!("❌ Failed to build system package: {}", e),
+                }
+            }
+            SystemCommands::Install { packages } => {
+                println!("Installing system dependencies: {:?}", packages);
+                
+                for package in packages {
+                    match self.system_builder.install_dependency(&package).await {
+                        Ok(_) => println!("✅ Successfully installed: {}", package),
+                        Err(e) => println!("❌ Failed to install {}: {}", package, e),
+                    }
+                }
+            }
+            SystemCommands::Info => {
+                println!("System information:");
+                println!("Architecture: {}", std::env::consts::ARCH);
+                println!("OS: {}", std::env::consts::OS);
+                println!("Family: {}", std::env::consts::FAMILY);
+            }
+        }
+        Ok(())
+    }
+
+    async fn handle_isolate_command(&self, command: IsolateCommands) -> Result<(), Box<dyn std::error::Error>> {
+        match command {
+            IsolateCommands::Create { name, packages } => {
+                println!("Creating isolated environment: {} with packages: {:?}", name, packages);
+                
+                let env = IsolatedEnvironment {
+                    name: name.clone(),
+                    packages: packages.clone(),
+                    base_image: Some("ubuntu:20.04".to_string()),
+                    environment_vars: HashMap::new(),
+                    mount_points: vec![],
+                    network_config: NetworkConfig {
+                        isolated: false,
+                        ports: vec![],
+                    },
+                    resource_limits: crate::isolation::ResourceLimits {
+                        memory_mb: Some(1024),
+                        cpu_cores: Some(2.0),
+                        disk_mb: Some(10240),
+                    },
+                };
+                
+                match self.isolation_builder.create_environment(&env).await {
+                    Ok(_) => println!("✅ Successfully created isolated environment: {}", name),
+                    Err(e) => println!("❌ Failed to create isolated environment: {}", e),
+                }
+            }
+            IsolateCommands::Enter { name } => {
+                println!("Entering isolated environment: {}", name);
+                
+                match self.isolation_builder.enter_environment(&name).await {
+                    Ok(_) => println!("✅ Entered isolated environment: {}", name),
+                    Err(e) => println!("❌ Failed to enter isolated environment: {}", e),
+                }
+            }
+            IsolateCommands::Remove { name } => {
+                println!("Removing isolated environment: {}", name);
+                
+                match self.isolation_builder.remove_environment(&name).await {
+                    Ok(_) => println!("✅ Successfully removed isolated environment: {}", name),
+                    Err(e) => println!("❌ Failed to remove isolated environment: {}", e),
+                }
+            }
+            IsolateCommands::List => {
+                println!("Isolated environments:");
+                
+                match self.isolation_builder.list_environments().await {
+                    Ok(environments) => {
+                        for env in environments {
+                            println!("  - {} (packages: {:?})", env.name, env.packages);
+                        }
+                    }
+                    Err(e) => println!("❌ Failed to list isolated environments: {}", e),
+                }
+            }
+        }
         Ok(())
     }
 

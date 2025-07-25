@@ -4,9 +4,9 @@
 use crate::config::PyroConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IsolatedEnvironment {
@@ -240,11 +240,11 @@ impl EnvironmentBuilder {
 				std::fs::copy(&src_path, &dst_path)?;
 
 				// Preserve executable permissions
-			#[cfg(unix)]
-			{
-				let src_perms = std::fs::metadata(&src_path)?.permissions();
-				std::fs::set_permissions(&dst_path, src_perms)?;
-			}
+				#[cfg(unix)]
+				{
+					let src_perms = std::fs::metadata(&src_path)?.permissions();
+					std::fs::set_permissions(&dst_path, src_perms)?;
+				}
 			}
 		}
 

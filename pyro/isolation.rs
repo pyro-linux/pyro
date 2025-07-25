@@ -5,6 +5,8 @@ use crate::config::PyroConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IsolatedEnvironment {
@@ -238,12 +240,11 @@ impl EnvironmentBuilder {
 				std::fs::copy(&src_path, &dst_path)?;
 
 				// Preserve executable permissions
-				#[cfg(unix)]
-				{
-					use std::os::unix::fs::PermissionsExt;
-					let src_perms = std::fs::metadata(&src_path)?.permissions();
-					std::fs::set_permissions(&dst_path, src_perms)?;
-				}
+			#[cfg(unix)]
+			{
+				let src_perms = std::fs::metadata(&src_path)?.permissions();
+				std::fs::set_permissions(&dst_path, src_perms)?;
+			}
 			}
 		}
 
@@ -434,7 +435,6 @@ impl EnvironmentBuilder {
 		// Make script executable
 		#[cfg(unix)]
 		{
-			use std::os::unix::fs::PermissionsExt;
 			let mut perms = std::fs::metadata(&script_path)?.permissions();
 			perms.set_mode(0o755);
 			std::fs::set_permissions(&script_path, perms)?;

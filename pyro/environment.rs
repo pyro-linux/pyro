@@ -292,7 +292,7 @@ set "PATH={};%PATH%"
 		// Default to bash on Unix systems
 		#[cfg(unix)]
 		{
-			return "bash".to_string();
+			"bash".to_string()
 		}
 	}
 

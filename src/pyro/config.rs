@@ -26,7 +26,6 @@ pub struct Package {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PackageSource {
-	Crate { name: String, version: String },
 	Git { url: String, rev: Option<String> },
 	Path { path: PathBuf },
 	Url { url: String, hash: String },
@@ -36,6 +35,8 @@ pub enum PackageSource {
 pub struct BuildConfig {
 	pub max_jobs: usize,
 	pub sandbox: bool,
+	pub git_command: Option<String>,
+	pub fetch_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,6 +60,8 @@ impl Default for PyroConfig {
 				max_jobs: std::thread::available_parallelism()
 					.map_or(1, |n| n.get()),
 				sandbox: true,
+				git_command: Some("gix".to_string()),
+				fetch_command: Some("curl".to_string()),
 			},
 			store_config: StoreConfig {
 				store_path: PathBuf::from("/pyro/store"),

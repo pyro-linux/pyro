@@ -6,7 +6,6 @@ mod builder;
 mod cli;
 mod config;
 mod dependency;
-mod request;
 mod store;
 
 #[tokio::main]

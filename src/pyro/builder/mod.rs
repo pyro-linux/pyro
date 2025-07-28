@@ -1,10 +1,6 @@
 use crate::config::{BuildConfig, Package, PackageSource};
-use crate::request::git::GixFetcher;
-use crate::request::request::ReqwestFetcher;
-use crate::request::{FetchError, Fetcher as _};
 use crate::store::{BuildResult, PyroStore};
 use petgraph::graph::{DiGraph, NodeIndex};
-use reqwest::Client;
 use std::collections::HashMap;
 use std::fs;
 use std::io::BufRead as _;
@@ -15,13 +11,13 @@ use std::time::Instant;
 use thiserror::Error;
 use tokio::sync::Semaphore;
 
+mod fetch;
+
 /// Nix-like package builder with sandboxing and reproducibility
 pub struct PyroBuilder {
 	config: BuildConfig,
 	store: Arc<tokio::sync::Mutex<PyroStore>>,
 	build_semaphore: Arc<Semaphore>,
-	reqwest_fetcher: ReqwestFetcher,
-	gix_fetcher: GixFetcher,
 }
 
 #[derive(Debug, Clone)]
@@ -58,8 +54,6 @@ impl PyroBuilder {
 			config,
 			store,
 			build_semaphore,
-			reqwest_fetcher: ReqwestFetcher::new(Client::new()),
-			gix_fetcher: GixFetcher::new(),
 		}
 	}
 
@@ -171,9 +165,12 @@ impl PyroBuilder {
 		context: &BuildContext,
 	) -> Result<BuildResult, BuildError> {
 		let _start_time = Instant::now();
-		let mut build_log = String::new();
 
-		self.prepare_source(context, &mut build_log).await?;
+		fetch::fetch_source(
+			&self.config,
+			&context.package.source,
+			&context.build_dir,
+		)?;
 
 		let mut command = Command::new(&context.package.builder);
 		command
@@ -225,55 +222,13 @@ impl PyroBuilder {
 		}
 	}
 
-	/// Prepare package source code
-	async fn prepare_source(
-		&self,
-		context: &BuildContext,
-		build_log: &mut String,
-	) -> Result<(), BuildError> {
-		build_log.push_str(&format!(
-			"Preparing source for {}\n",
-			context.package.name
-		));
-
-		match &context.package.source {
-			PackageSource::Crate { name, version } => {
-				let url = format!(
-					"https://static.crates.io/crates/{name}/{name}-{version}.crate"
-				);
-				self.reqwest_fetcher
-					.fetch_and_extract(&url, &context.build_dir, None)
-					.await?;
-			}
-			PackageSource::Git { url, rev } => {
-				self.gix_fetcher
-					.fetch_and_extract(url, &context.build_dir, rev.as_deref())
-					.await?;
-			}
-			PackageSource::Path { path } => {
-				self.copy_local_path(path, &context.build_dir, build_log)
-					.await?
-			}
-			PackageSource::Url { url, hash: _ } => {
-				self.reqwest_fetcher
-					.fetch_and_extract(url, &context.build_dir, None)
-					.await?;
-			}
-		}
-
-		Ok(())
-	}
-
 	/// Copy local path
+	#[tracing::instrument(skip(self, src, dest))]
 	async fn copy_local_path(
 		&self,
 		src: &Path,
 		dest: &Path,
-		build_log: &mut String,
 	) -> Result<(), BuildError> {
-		build_log
-			.push_str(&format!("Copying from local path {}\n", src.display()));
-
 		let output = Command::new("cp")
 			.arg("-r")
 			.arg(src)
@@ -290,16 +245,11 @@ impl PyroBuilder {
 	}
 
 	/// Install package to store path
+	#[tracing::instrument(skip(self, context))]
 	async fn install_package(
 		&self,
 		context: &BuildContext,
-		build_log: &mut String,
 	) -> Result<(), BuildError> {
-		build_log.push_str(&format!(
-			"Installing to {}\n",
-			context.store_path.display()
-		));
-
 		let source_dir = context.build_dir.join("source");
 		let target_dir = source_dir.join("target/release");
 
@@ -336,31 +286,27 @@ impl PyroBuilder {
 		}
 		Ok(size)
 	}
+}
 
-	/// Copy directory recursively
-	fn copy_directory(
-		&self,
-		source: &Path,
-		destination: &Path,
-	) -> Result<(), BuildError> {
-		if !source.exists() {
-			return Ok(());
-		}
-
-		fs::create_dir_all(destination)?;
-
-		for entry in fs::read_dir(source)? {
-			let entry = entry?;
-			let source_path = entry.path();
-			let dest_path = destination.join(entry.file_name());
-
-			if source_path.is_dir() {
-				self.copy_directory(&source_path, &dest_path)?;
-			} else {
-				fs::copy(&source_path, &dest_path)?;
-			}
-		}
-
-		Ok(())
+/// Copy directory recursively
+fn copy_directory(source: &Path, destination: &Path) -> Result<(), BuildError> {
+	if !source.exists() {
+		return Ok(());
 	}
+
+	fs::create_dir_all(destination)?;
+
+	for entry in fs::read_dir(source)? {
+		let entry = entry?;
+		let source_path = entry.path();
+		let dest_path = destination.join(entry.file_name());
+
+		if source_path.is_dir() {
+			copy_directory(&source_path, &dest_path)?;
+		} else {
+			fs::copy(&source_path, &dest_path)?;
+		}
+	}
+
+	Ok(())
 }

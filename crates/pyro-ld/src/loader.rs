@@ -3,7 +3,7 @@ use crate::syscall::{
 	close, lseek, mmap, open, read, MAP_ANONYMOUS, MAP_FAILED, MAP_PRIVATE,
 	O_CLOEXEC, O_RDONLY, PROT_READ, PROT_WRITE, SEEK_END, SEEK_SET,
 };
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 use goblin::elf::header::Header;
 use goblin::elf::program_header::{ProgramHeader, PT_LOAD};
 use scroll::Pread;
@@ -17,24 +17,23 @@ impl FileLoader {
 		path_bytes.extend_from_slice(path.as_bytes());
 		path_bytes.push(0);
 
-		let fd = unsafe { open(path_bytes.as_ptr(), O_RDONLY | O_CLOEXEC) };
+		let fd = open(path_bytes.as_ptr(), O_RDONLY | O_CLOEXEC);
 		if fd < 0 {
 			return Err("Failed to open file");
 		}
 
 		// Get file size
-		let size = unsafe { lseek(fd, 0, SEEK_END) };
+		let size = lseek(fd, 0, SEEK_END);
 		if size < 0 {
-			unsafe { close(fd) };
+			close(fd);
 			return Err("Failed to get file size");
 		}
 
-		unsafe { lseek(fd, 0, SEEK_SET) };
+		lseek(fd, 0, SEEK_SET);
 
 		// Read file contents
-		let mut buffer: Vec<u8> = Vec::with_capacity(size as usize);
+		let mut buffer = vec![0; size as usize];
 		unsafe {
-			buffer.set_len(size as usize);
 			let mut total_read = 0;
 			while total_read < size as usize {
 				let n = read(

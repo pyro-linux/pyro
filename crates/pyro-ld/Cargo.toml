@@ -2,17 +2,18 @@
 name = "pyro-ld"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
-goblin = { version = "0.8", default-features = false, features = [
+goblin = { version = "0.10", default-features = false, features = [
     "elf64",
     "elf32",
     "endian_fd",
 ] }
-scroll = { version = "0.12", default-features = false }
+scroll = { version = "0.13", default-features = false }
 
 [build-dependencies]
-cbindgen = "0.27"
+cbindgen = "0.29"
 
 [[bin]]
 name = "ld-pyro"
